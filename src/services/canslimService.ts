@@ -29,14 +29,41 @@ export class CANSLIMService {
     historicalBars: Bar[],
     volume: number
   ): CANSLIMScore {
-    if (!historicalBars || historicalBars.length < 20) {
-      return this.getDefaultScore('Insufficient historical data');
+    // Work with any available data - minimum 1 bar
+    if (!historicalBars || historicalBars.length === 0) {
+      return this.getDefaultScore('No historical data available');
     }
 
-    // Sort bars by date (oldest first)
-    const sortedBars = [...historicalBars].sort((a, b) => 
-      new Date(a.t).getTime() - new Date(b.t).getTime()
-    );
+    // Filter out invalid bars - be more lenient with validation
+    const validBars = historicalBars.filter(bar => {
+      if (!bar) return false;
+      // Allow bars even if timestamp is missing, just need valid price data
+      if (isNaN(bar.c) || bar.c <= 0) return false;
+      // Be lenient with OHLC - use close if others are missing
+      if (isNaN(bar.o)) bar.o = bar.c;
+      if (isNaN(bar.h)) bar.h = bar.c;
+      if (isNaN(bar.l)) bar.l = bar.c;
+      if (isNaN(bar.v) || bar.v < 0) bar.v = 0;
+      return true;
+    });
+    
+    if (validBars.length === 0) {
+      return this.getDefaultScore('No valid price data available');
+    }
+    
+    // Sort bars by date if timestamps are available, otherwise maintain order
+    const sortedBars = validBars.every(b => b.t)
+      ? [...validBars].sort((a, b) => {
+          if (a.t && b.t) {
+            const timeA = new Date(a.t).getTime();
+            const timeB = new Date(b.t).getTime();
+            if (!isNaN(timeA) && !isNaN(timeB)) {
+              return timeA - timeB;
+            }
+          }
+          return 0;
+        })
+      : [...validBars]; // If no timestamps, use as-is (assume already sorted)
 
     const scores = {
       // C: Current quarterly earnings per share (EPS) - should be up 25%+
@@ -89,49 +116,90 @@ export class CANSLIMService {
 
   private static scoreCurrentQuarterlyEarnings(bars: Bar[]): { score: number; maxScore: number; description: string } {
     // Use last 3 months (approx 60 trading days) price performance as proxy
-    const recentBars = bars.slice(-60);
-    if (recentBars.length < 20) {
+    // Fall back to available data if less than 60 bars
+    const recentBars = bars.slice(-Math.min(60, bars.length));
+    if (recentBars.length < 1) {
       return { score: 0, maxScore: 15, description: 'Insufficient data for quarterly analysis' };
+    }
+    
+    // If only one bar, use its price change as a proxy
+    if (recentBars.length === 1) {
+      const bar = recentBars[0];
+      const priceChange = bar.c > bar.o ? ((bar.c - bar.o) / bar.o) * 100 : 0;
+      return { 
+        score: priceChange > 0 ? 5 : 2, 
+        maxScore: 15, 
+        description: `Single day data: ${priceChange > 0 ? 'positive' : 'negative'} price movement` 
+      };
     }
 
     const startPrice = recentBars[0].c;
     const endPrice = recentBars[recentBars.length - 1].c;
+    if (!startPrice || startPrice === 0) {
+      return { score: 0, maxScore: 15, description: 'Invalid price data' };
+    }
     const changePercent = ((endPrice - startPrice) / startPrice) * 100;
+    
+    // Adjust label based on available data
+    const period = recentBars.length >= 60 ? 'quarterly' : recentBars.length >= 20 ? `${Math.floor(recentBars.length/5)}-week` : `${recentBars.length}-day`;
 
     // Target: 25%+ growth
-    if (changePercent >= 25) return { score: 15, maxScore: 15, description: `Strong quarterly momentum: +${changePercent.toFixed(1)}%` };
-    if (changePercent >= 15) return { score: 12, maxScore: 15, description: `Good quarterly momentum: +${changePercent.toFixed(1)}%` };
-    if (changePercent >= 5) return { score: 8, maxScore: 15, description: `Moderate quarterly momentum: +${changePercent.toFixed(1)}%` };
-    if (changePercent >= 0) return { score: 5, maxScore: 15, description: `Weak quarterly momentum: +${changePercent.toFixed(1)}%` };
-    return { score: 2, maxScore: 15, description: `Negative quarterly momentum: ${changePercent.toFixed(1)}%` };
+    if (changePercent >= 25) return { score: 15, maxScore: 15, description: `Strong ${period} momentum: +${changePercent.toFixed(1)}%` };
+    if (changePercent >= 15) return { score: 12, maxScore: 15, description: `Good ${period} momentum: +${changePercent.toFixed(1)}%` };
+    if (changePercent >= 5) return { score: 8, maxScore: 15, description: `Moderate ${period} momentum: +${changePercent.toFixed(1)}%` };
+    if (changePercent >= 0) return { score: 5, maxScore: 15, description: `Weak ${period} momentum: +${changePercent.toFixed(1)}%` };
+    return { score: 2, maxScore: 15, description: `Negative ${period} momentum: ${changePercent.toFixed(1)}%` };
   }
 
   private static scoreAnnualEarningsGrowth(bars: Bar[]): { score: number; maxScore: number; description: string } {
     // Use last year (approx 252 trading days) price performance
-    const annualBars = bars.slice(-252);
-    if (annualBars.length < 50) {
+    // Fall back to available data if less than 252 bars
+    const annualBars = bars.slice(-Math.min(252, bars.length));
+    if (annualBars.length < 2) {
+      // If we have at least 2 bars, use them for comparison
+      if (annualBars.length === 1) {
+        return { score: 5, maxScore: 15, description: 'Insufficient data for annual analysis (single day)' };
+      }
       return { score: 0, maxScore: 15, description: 'Insufficient data for annual analysis' };
     }
 
     const startPrice = annualBars[0].c;
     const endPrice = annualBars[annualBars.length - 1].c;
     const changePercent = ((endPrice - startPrice) / startPrice) * 100;
+    
+    // Adjust label based on available data
+    const period = annualBars.length >= 200 ? 'annual' : `${annualBars.length}-day`;
 
-    // Target: 25%+ annual growth
-    if (changePercent >= 25) return { score: 15, maxScore: 15, description: `Strong annual growth: +${changePercent.toFixed(1)}%` };
-    if (changePercent >= 15) return { score: 12, maxScore: 15, description: `Good annual growth: +${changePercent.toFixed(1)}%` };
-    if (changePercent >= 5) return { score: 8, maxScore: 15, description: `Moderate annual growth: +${changePercent.toFixed(1)}%` };
-    if (changePercent >= 0) return { score: 5, maxScore: 15, description: `Weak annual growth: +${changePercent.toFixed(1)}%` };
-    return { score: 2, maxScore: 15, description: `Negative annual growth: ${changePercent.toFixed(1)}%` };
+    // Target: 25%+ annual growth (scaled for shorter periods)
+    if (changePercent >= 25) return { score: 15, maxScore: 15, description: `Strong ${period} growth: +${changePercent.toFixed(1)}%` };
+    if (changePercent >= 15) return { score: 12, maxScore: 15, description: `Good ${period} growth: +${changePercent.toFixed(1)}%` };
+    if (changePercent >= 5) return { score: 8, maxScore: 15, description: `Moderate ${period} growth: +${changePercent.toFixed(1)}%` };
+    if (changePercent >= 0) return { score: 5, maxScore: 15, description: `Weak ${period} growth: +${changePercent.toFixed(1)}%` };
+    return { score: 2, maxScore: 15, description: `Negative ${period} growth: ${changePercent.toFixed(1)}%` };
   }
 
   private static scoreNewHighs(currentPrice: number, bars: Bar[]): { score: number; maxScore: number; description: string } {
-    if (bars.length < 20) {
+    if (bars.length < 1) {
       return { score: 0, maxScore: 15, description: 'Insufficient data' };
     }
 
-    const recentHighs = bars.slice(-60).map(b => b.h);
-    const allTimeHigh = Math.max(...bars.map(b => b.h));
+    const validBars = bars.filter(b => b && !isNaN(b.h) && b.h > 0);
+    if (validBars.length < 1) {
+      return { score: 0, maxScore: 15, description: 'Invalid high price data' };
+    }
+    
+    // If only one bar, use its high as comparison
+    if (validBars.length === 1) {
+      const bar = validBars[0];
+      const percentFromHigh = ((currentPrice - bar.h) / bar.h) * 100;
+      if (percentFromHigh >= -5) {
+        return { score: 12, maxScore: 15, description: 'Trading near high (limited data)' };
+      }
+      return { score: 6, maxScore: 15, description: `Currently ${Math.abs(percentFromHigh).toFixed(1)}% below high` };
+    }
+
+    const recentHighs = validBars.slice(-Math.min(60, validBars.length)).map(b => b.h);
+    const allTimeHigh = Math.max(...validBars.map(b => b.h));
     const recentHigh = Math.max(...recentHighs);
 
     // Check if near or at new highs
@@ -151,15 +219,23 @@ export class CANSLIMService {
   }
 
   private static scoreSupplyAndDemand(volume: number, bars: Bar[]): { score: number; maxScore: number; description: string } {
-    if (bars.length < 20) {
+    if (bars.length < 1) {
       return { score: 0, maxScore: 10, description: 'Insufficient data' };
     }
 
-    const avgVolume = bars.slice(-20).reduce((sum, b) => sum + b.v, 0) / 20;
+    const recentBars = bars.slice(-Math.min(20, bars.length)).filter(b => b && !isNaN(b.v) && b.v >= 0);
+    if (recentBars.length === 0) {
+      // If no volume data, give a neutral score
+      return { score: 5, maxScore: 10, description: 'No volume data available' };
+    }
+
+    const avgVolume = recentBars.reduce((sum, b) => sum + b.v, 0) / recentBars.length;
+    if (avgVolume === 0) {
+      return { score: 0, maxScore: 10, description: 'Zero average volume' };
+    }
     const volumeRatio = volume / avgVolume;
 
     // Higher volume on up days indicates strong demand
-    const recentBars = bars.slice(-20);
     const upDays = recentBars.filter(b => b.c > b.o);
     const avgUpVolume = upDays.length > 0 
       ? upDays.reduce((sum, b) => sum + b.v, 0) / upDays.length 
@@ -178,16 +254,25 @@ export class CANSLIMService {
   }
 
   private static scoreLeaderOrLaggard(bars: Bar[]): { score: number; maxScore: number; description: string } {
-    if (bars.length < 60) {
+    if (bars.length < 2) {
+      if (bars.length === 1) {
+        return { score: 5, maxScore: 10, description: 'Insufficient data for relative performance (single day)' };
+      }
       return { score: 0, maxScore: 10, description: 'Insufficient data' };
     }
 
     // Compare recent performance vs earlier period
-    const recentBars = bars.slice(-30);
-    const earlierBars = bars.slice(-60, -30);
+    // Adjust window sizes based on available data
+    const halfLength = Math.max(1, Math.floor(bars.length / 2));
+    const recentBars = bars.slice(-halfLength);
+    const earlierBars = bars.slice(-bars.length, -halfLength);
     
+    if (recentBars.length < 2 || !recentBars[0].c || recentBars[0].c === 0) {
+      return { score: 0, maxScore: 10, description: 'Invalid recent price data' };
+    }
+
     const recentReturn = ((recentBars[recentBars.length - 1].c - recentBars[0].c) / recentBars[0].c) * 100;
-    const earlierReturn = earlierBars.length > 0 
+    const earlierReturn = earlierBars.length >= 2 && earlierBars[0].c > 0
       ? ((earlierBars[earlierBars.length - 1].c - earlierBars[0].c) / earlierBars[0].c) * 100
       : 0;
 
@@ -205,41 +290,68 @@ export class CANSLIMService {
   }
 
   private static scoreInstitutionalSponsorship(volume: number, bars: Bar[]): { score: number; maxScore: number; description: string } {
-    if (bars.length < 20) {
+    if (bars.length < 1) {
       return { score: 0, maxScore: 10, description: 'Insufficient data' };
     }
 
     // Look for consistent high volume (institutional buying)
-    const recentBars = bars.slice(-20);
-    const avgVolume = recentBars.reduce((sum, b) => sum + b.v, 0) / 20;
-    const highVolumeDays = recentBars.filter(b => b.v > avgVolume * 1.5).length;
+    const recentBars = bars.slice(-Math.min(20, bars.length)).filter(b => b && !isNaN(b.v) && b.v >= 0);
+    if (recentBars.length === 0) {
+      return { score: 0, maxScore: 10, description: 'No valid volume data' };
+    }
 
-    if (highVolumeDays >= 8 && volume > avgVolume) {
+    const avgVolume = recentBars.reduce((sum, b) => sum + b.v, 0) / recentBars.length;
+    if (avgVolume === 0) {
+      return { score: 0, maxScore: 10, description: 'Zero average volume' };
+    }
+
+    const highVolumeDays = recentBars.filter(b => b.v > avgVolume * 1.5).length;
+    
+    // Scale thresholds based on available data
+    const scaleFactor = recentBars.length / 20;
+
+    if (highVolumeDays >= Math.ceil(8 * scaleFactor) && volume > avgVolume) {
       return { score: 10, maxScore: 10, description: 'Strong institutional interest' };
     }
-    if (highVolumeDays >= 5) {
+    if (highVolumeDays >= Math.ceil(5 * scaleFactor)) {
       return { score: 8, maxScore: 10, description: 'Moderate institutional activity' };
     }
-    if (highVolumeDays >= 3) {
+    if (highVolumeDays >= Math.ceil(3 * scaleFactor)) {
       return { score: 6, maxScore: 10, description: 'Some institutional interest' };
     }
     return { score: 3, maxScore: 10, description: 'Limited institutional sponsorship' };
   }
 
   private static scoreMarketDirection(bars: Bar[]): { score: number; maxScore: number; description: string } {
-    if (bars.length < 20) {
+    if (bars.length < 2) {
+      if (bars.length === 1) {
+        const bar = bars[0];
+        const isUp = bar.c > bar.o;
+        return { 
+          score: isUp ? 6 : 4, 
+          maxScore: 10, 
+          description: `Single day: ${isUp ? 'up' : 'down'} day (limited data)` 
+        };
+      }
       return { score: 0, maxScore: 10, description: 'Insufficient data' };
     }
 
     // Check recent trend
-    const recentBars = bars.slice(-20);
+    const recentBars = bars.slice(-Math.min(20, bars.length)).filter(b => b && !isNaN(b.c) && b.c > 0);
+    if (recentBars.length < 2) {
+      return { score: 0, maxScore: 10, description: 'Invalid price data' };
+    }
+
     const startPrice = recentBars[0].c;
     const endPrice = recentBars[recentBars.length - 1].c;
+    if (!startPrice || startPrice === 0) {
+      return { score: 0, maxScore: 10, description: 'Invalid start price' };
+    }
     const trend = ((endPrice - startPrice) / startPrice) * 100;
 
     // Count up days vs down days
-    const upDays = recentBars.filter(b => b.c > b.o).length;
-    const downDays = recentBars.filter(b => b.c < b.o).length;
+    const upDays = recentBars.filter(b => b && b.c > b.o).length;
+    const downDays = recentBars.filter(b => b && b.c < b.o).length;
 
     if (trend > 5 && upDays > downDays * 1.5) {
       return { score: 10, maxScore: 10, description: 'Strong uptrend' };

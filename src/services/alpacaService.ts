@@ -58,10 +58,18 @@ class AlpacaService {
       const response = await this.client.get(`/stocks/${symbol}/snapshot`);
       const snapshot = response.data;
       
+      console.log(`Alpaca API getQuote response for ${symbol}:`, {
+        status: response.status,
+        hasData: !!snapshot,
+        hasQuote: !!snapshot.latestQuote,
+        hasTrade: !!snapshot.latestTrade,
+        symbol: snapshot.symbol,
+      });
+      
       // Extract quote from snapshot
       if (snapshot.latestQuote) {
-        return {
-          symbol: snapshot.symbol,
+        const quote = {
+          symbol: snapshot.symbol || symbol,
           ask_price: snapshot.latestQuote.ap || 0,
           ask_size: snapshot.latestQuote.as || 0,
           bid_price: snapshot.latestQuote.bp || 0,
@@ -70,9 +78,12 @@ class AlpacaService {
           last_size: snapshot.latestTrade?.s || 0,
           updated_at: snapshot.latestQuote.t || new Date().toISOString(),
         };
+        console.log(`Quote extracted for ${symbol}:`, quote);
+        return quote;
       }
       
       // Fallback: return empty quote if no data
+      console.warn(`No quote data in snapshot for ${symbol}. Snapshot:`, snapshot);
       return {
         symbol,
         ask_price: 0,
@@ -83,8 +94,13 @@ class AlpacaService {
         last_size: 0,
         updated_at: new Date().toISOString(),
       };
-    } catch (error) {
-      console.error(`Error fetching quote for ${symbol}:`, error);
+    } catch (error: any) {
+      console.error(`Error fetching quote for ${symbol}:`, {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+      });
       throw error;
     }
   }
@@ -98,11 +114,23 @@ class AlpacaService {
           limit,
         },
       });
+      
+      // Log the response for debugging
+      console.log(`Alpaca API getBars response for ${symbol}:`, {
+        status: response.status,
+        hasData: !!response.data,
+        hasBars: !!response.data?.bars,
+        symbolKey: symbol,
+        barsCount: response.data?.bars?.[symbol]?.length || 0,
+        sampleBar: response.data?.bars?.[symbol]?.[0],
+      });
+      
       // Alpaca returns bars as an object with symbol as key
       const bars = response.data.bars?.[symbol] || [];
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/d5affe11-ec13-48a4-9f3d-82e22bf74af7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'alpacaService.ts:103',message:'getBars response',data:{symbol,limit,barsReceived:bars.length,sampleBar:bars[0],responseKeys:Object.keys(response.data||{})},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H2'})}).catch(()=>{});
-      // #endregion
+      
+      if (bars.length === 0) {
+        console.warn(`No bars returned for ${symbol}. Response data:`, response.data);
+      }
       
       const mappedBars = bars.map((bar: any) => ({
         o: bar.o || 0,
@@ -113,11 +141,23 @@ class AlpacaService {
         t: bar.t || '',
       }));
       
-      return mappedBars;
+      // Filter out invalid bars (all zeros or missing close price)
+      const validBars = mappedBars.filter(bar => bar.c > 0);
+      
+      if (validBars.length < mappedBars.length) {
+        console.warn(`Filtered out ${mappedBars.length - validBars.length} invalid bars for ${symbol}`);
+      }
+      
+      return validBars;
     } catch (error: any) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/d5affe11-ec13-48a4-9f3d-82e22bf74af7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'alpacaService.ts:118',message:'getBars error',data:{symbol,limit,error:error.response?.data||error.message},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-      // #endregion
+      // Better error logging
+      console.error(`Error fetching bars for ${symbol}:`, {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+      });
+      
       // Return empty array instead of throwing to allow partial data
       return [];
     }
@@ -171,18 +211,42 @@ class AlpacaService {
         }
       }
 
-      console.log(`Market data for ${symbol}:`, {
+      // Determine dailyBar (use the most recent bar if available)
+      const finalDailyBar = dailyBars?.[0] || (allHistoricalBars.length > 0 ? allHistoricalBars[allHistoricalBars.length - 1] : undefined);
+
+      console.log(`Market data summary for ${symbol}:`, {
         hasQuote: !!quote,
-        hasDailyBar: !!dailyBars?.[0],
+        quoteData: quote ? {
+          last_price: quote.last_price,
+          bid_price: quote.bid_price,
+          ask_price: quote.ask_price,
+        } : null,
+        hasDailyBar: !!finalDailyBar,
+        dailyBarData: finalDailyBar ? {
+          o: finalDailyBar.o,
+          h: finalDailyBar.h,
+          l: finalDailyBar.l,
+          c: finalDailyBar.c,
+          v: finalDailyBar.v,
+          t: finalDailyBar.t,
+        } : null,
         historicalBarsCount: allHistoricalBars.length,
         dailyBarsCount: dailyBars?.length || 0,
-        sampleBar: allHistoricalBars[0],
+        validBarsCount: allHistoricalBars.filter(b => b.c > 0).length,
+        sampleBar: allHistoricalBars[0] ? {
+          o: allHistoricalBars[0].o,
+          h: allHistoricalBars[0].h,
+          l: allHistoricalBars[0].l,
+          c: allHistoricalBars[0].c,
+          v: allHistoricalBars[0].v,
+          t: allHistoricalBars[0].t,
+        } : null,
       });
 
       return {
         symbol,
         quote: quote || {} as StockQuote,
-        dailyBar: dailyBars?.[0] || undefined,
+        dailyBar: finalDailyBar,
         historicalBars: allHistoricalBars.length > 0 ? allHistoricalBars : undefined,
       };
     } catch (error) {
@@ -246,11 +310,33 @@ const getAlpacaService = (): AlpacaService | null => {
   const secretKey = import.meta.env.VITE_ALPACA_SECRET_KEY;
   const usePaperTrading = import.meta.env.VITE_ALPACA_USE_PAPER !== 'false';
 
+  console.log('Alpaca Service Initialization:', {
+    hasApiKey: !!apiKey,
+    hasSecretKey: !!secretKey,
+    apiKeyLength: apiKey?.length || 0,
+    secretKeyLength: secretKey?.length || 0,
+    usePaperTrading,
+    envKeys: Object.keys(import.meta.env).filter(k => k.startsWith('VITE_ALPACA')),
+  });
+
   if (!apiKey || !secretKey) {
-    console.warn('Alpaca API credentials not found in environment variables');
+    console.error('Alpaca API credentials not found in environment variables', {
+      apiKeyPresent: !!apiKey,
+      secretKeyPresent: !!secretKey,
+      allEnvKeys: Object.keys(import.meta.env),
+    });
     return null;
   }
 
+  if (apiKey.length < 10 || secretKey.length < 10) {
+    console.error('Alpaca API credentials appear to be invalid (too short)', {
+      apiKeyLength: apiKey.length,
+      secretKeyLength: secretKey.length,
+    });
+    return null;
+  }
+
+  console.log('Alpaca Service created successfully');
   return new AlpacaService({
     apiKey,
     secretKey,

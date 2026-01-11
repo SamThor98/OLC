@@ -1,4 +1,4 @@
-import React, { useMemo, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { MarketData } from '../services/alpacaService';
 import { CANSLIMService } from '../services/canslimService';
 import { WeinsteinService } from '../services/weinsteinService';
@@ -11,73 +11,120 @@ interface StockDisplayProps {
 const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
   const { quote, dailyBar, historicalBars } = data;
 
-  // #region agent log
-  useEffect(() => {
-    fetch('http://127.0.0.1:7242/ingest/d5affe11-ec13-48a4-9f3d-82e22bf74af7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StockDisplay.tsx:15',message:'StockDisplay received data',data:{hasDailyBar:!!dailyBar,hasHistoricalBars:!!historicalBars,historicalBarsLength:historicalBars?.length||0,sampleBar:historicalBars?.[0],dailyBarData:dailyBar},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1-H4'})}).catch(()=>{});
-  }, [dailyBar, historicalBars]);
-  // #endregion
+  // Debug logging
+  console.log('StockDisplay received data:', {
+    hasQuote: !!quote,
+    hasDailyBar: !!dailyBar,
+    hasHistoricalBars: !!historicalBars,
+    historicalBarsCount: historicalBars?.length || 0,
+    quotePrice: quote?.last_price,
+    dailyBarPrice: dailyBar?.c,
+  });
 
-  // Calculate CANSLIM score - reduced requirement to 10 bars for testing
+  // Calculate CANSLIM score (works with any available data)
   const canslimScore = useMemo(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/d5affe11-ec13-48a4-9f3d-82e22bf74af7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StockDisplay.tsx:25',message:'CANSLIM calculation start',data:{hasDailyBar:!!dailyBar,hasHistoricalBars:!!historicalBars,barsCount:historicalBars?.length||0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3-H4'})}).catch(()=>{});
-    // #endregion
-    if (!dailyBar) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/d5affe11-ec13-48a4-9f3d-82e22bf74af7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StockDisplay.tsx:30',message:'CANSLIM: No dailyBar',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
-      // #endregion
+    // Use dailyBar if available, otherwise use quote price, otherwise skip
+    const currentPrice = dailyBar?.c || quote?.last_price || 0;
+    const currentVolume = dailyBar?.v || 0;
+    
+    if (!currentPrice || currentPrice <= 0) {
+      console.log('CANSLIM: No valid price data');
       return null;
     }
-    if (!historicalBars || historicalBars.length < 10) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/d5affe11-ec13-48a4-9f3d-82e22bf74af7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StockDisplay.tsx:35',message:'CANSLIM: Insufficient data',data:{barsCount:historicalBars?.length||0,required:10},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
-      // #endregion
+    
+    // Combine historicalBars with dailyBar for analysis
+    let allBars = historicalBars ? [...historicalBars] : [];
+    
+    // Add dailyBar if it's not already in historicalBars
+    if (dailyBar) {
+      const hasDailyBar = dailyBar.t 
+        ? allBars.some(b => b.t === dailyBar.t)
+        : false;
+      if (!hasDailyBar) {
+        allBars.push(dailyBar);
+      }
+    }
+    
+    // If we have no bars but have a quote price, create a minimal bar for analysis
+    if (allBars.length === 0 && quote?.last_price) {
+      const quotePrice = quote.last_price;
+      allBars = [{
+        o: quotePrice,
+        h: quotePrice,
+        l: quotePrice,
+        c: quotePrice,
+        v: 0,
+        t: new Date().toISOString(),
+      }];
+      console.log('CANSLIM: Created minimal bar from quote data');
+    }
+    
+    if (allBars.length === 0) {
+      console.log('CANSLIM: No bars available for analysis');
       return null;
     }
+    
+    console.log(`CANSLIM: Analyzing with ${allBars.length} bar(s)`);
+    
     try {
-      const result = CANSLIMService.calculateScore(dailyBar.c, historicalBars, dailyBar.v);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/d5affe11-ec13-48a4-9f3d-82e22bf74af7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StockDisplay.tsx:42',message:'CANSLIM: Success',data:{grade:result.overallGrade,totalScore:result.totalScore},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
-      return result;
-    } catch (error: any) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/d5affe11-ec13-48a4-9f3d-82e22bf74af7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StockDisplay.tsx:48',message:'CANSLIM: Error',data:{error:error?.message||String(error)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
+      return CANSLIMService.calculateScore(currentPrice, allBars, currentVolume);
+    } catch (error) {
+      console.error('CANSLIM calculation error:', error);
       return null;
     }
-  }, [dailyBar, historicalBars]);
+  }, [dailyBar, historicalBars, quote]);
 
-  // Calculate Weinstein stage - reduced requirement to 30 bars for testing
+  // Calculate Weinstein stage (works with any available data, more is better)
   const weinsteinAnalysis = useMemo(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/d5affe11-ec13-48a4-9f3d-82e22bf74af7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StockDisplay.tsx:55',message:'Weinstein calculation start',data:{hasDailyBar:!!dailyBar,barsCount:historicalBars?.length||0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3-H4'})}).catch(()=>{});
-    // #endregion
-    if (!dailyBar) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/d5affe11-ec13-48a4-9f3d-82e22bf74af7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StockDisplay.tsx:60',message:'Weinstein: No dailyBar',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
-      // #endregion
+    // Use dailyBar if available, otherwise use quote price, otherwise skip
+    const currentPrice = dailyBar?.c || quote?.last_price || 0;
+    
+    if (!currentPrice || currentPrice <= 0) {
+      console.log('Weinstein: No valid price data');
       return null;
     }
-    if (!historicalBars || historicalBars.length < 30) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/d5affe11-ec13-48a4-9f3d-82e22bf74af7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StockDisplay.tsx:65',message:'Weinstein: Insufficient data',data:{barsCount:historicalBars?.length||0,required:30},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
-      // #endregion
+    
+    // Combine historicalBars with dailyBar for analysis
+    let allBars = historicalBars ? [...historicalBars] : [];
+    
+    // Add dailyBar if it's not already in historicalBars
+    if (dailyBar) {
+      const hasDailyBar = dailyBar.t 
+        ? allBars.some(b => b.t === dailyBar.t)
+        : false;
+      if (!hasDailyBar) {
+        allBars.push(dailyBar);
+      }
+    }
+    
+    // If we have no bars but have a quote price, create a minimal bar for analysis
+    if (allBars.length === 0 && quote?.last_price) {
+      const quotePrice = quote.last_price;
+      allBars = [{
+        o: quotePrice,
+        h: quotePrice,
+        l: quotePrice,
+        c: quotePrice,
+        v: 0,
+        t: new Date().toISOString(),
+      }];
+      console.log('Weinstein: Created minimal bar from quote data');
+    }
+    
+    if (allBars.length === 0) {
+      console.log('Weinstein: No bars available for analysis');
       return null;
     }
+    
+    console.log(`Weinstein: Analyzing with ${allBars.length} bar(s)`);
+    
     try {
-      const result = WeinsteinService.analyzeStage(dailyBar.c, historicalBars);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/d5affe11-ec13-48a4-9f3d-82e22bf74af7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StockDisplay.tsx:72',message:'Weinstein: Success',data:{stage:result.stage,stageName:result.stageName},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
-      return result;
-    } catch (error: any) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/d5affe11-ec13-48a4-9f3d-82e22bf74af7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StockDisplay.tsx:78',message:'Weinstein: Error',data:{error:error?.message||String(error)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
+      return WeinsteinService.analyzeStage(currentPrice, allBars);
+    } catch (error) {
+      console.error('Weinstein calculation error:', error);
       return null;
     }
-  }, [dailyBar, historicalBars]);
+  }, [dailyBar, historicalBars, quote]);
 
   const priceChange = dailyBar ? dailyBar.c - dailyBar.o : 0;
   const priceChangePercent = dailyBar && dailyBar.o > 0 
@@ -260,9 +307,14 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
               <p className="text-sm text-bison-600 font-medium mb-2">Insufficient data for CANSLIM analysis</p>
               <p className="text-xs text-bison-500">
                 {!dailyBar ? 'Missing daily price data. ' : ''}
-                {!historicalBars ? 'Missing historical data. ' : historicalBars.length < 10 ? `Only ${historicalBars.length} days available (need at least 10). ` : ''}
-                Please try again or check your API connection.
+                {!historicalBars ? 'Missing historical data. ' : historicalBars.length === 0 ? 'No historical bars received. ' : `Only ${historicalBars.length} day(s) available (need at least 5 for basic analysis). `}
+                Please ensure your Alpaca API credentials are configured and try again.
               </p>
+              {historicalBars && historicalBars.length > 0 && (
+                <p className="text-xs text-amber-600 mt-2">
+                  Debug: Received {historicalBars.length} historical bar(s). Sample data: {JSON.stringify(historicalBars[0]).substring(0, 100)}...
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -323,8 +375,8 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
               <p className="text-sm text-bison-600 font-medium mb-2">Insufficient data for Weinstein analysis</p>
               <p className="text-xs text-bison-500">
                 {!dailyBar ? 'Missing daily price data. ' : ''}
-                {!historicalBars ? 'Missing historical data. ' : historicalBars.length < 30 ? `Only ${historicalBars.length} days available (need at least 30 for basic analysis, 150+ for full analysis). ` : ''}
-                Weinstein Stage Analysis requires 30+ weeks of historical data.
+                {!historicalBars ? 'Missing historical data. ' : historicalBars.length < 20 ? `Only ${historicalBars.length} day(s) available (need at least 20 for basic analysis, 150+ for full accuracy). ` : ''}
+                Weinstein Stage Analysis works best with 30+ weeks of historical data.
               </p>
             </div>
           )}

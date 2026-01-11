@@ -24,15 +24,16 @@ export interface WeinsteinAnalysis {
  */
 export class WeinsteinService {
   /**
-   * Calculate 30-week moving average (approximately 150 trading days)
+   * Calculate moving average (30-week ideal = 150 trading days, but adapts to available data)
    */
   static calculate30WeekMA(bars: Bar[]): number {
-    if (!bars || bars.length < 30) {
+    if (!bars || bars.length < 10) {
       return 0;
     }
 
-    // Use last 150 trading days (approximately 30 weeks)
-    const relevantBars = bars.slice(-150);
+    // Use available data up to 150 trading days (approximately 30 weeks)
+    // For shorter periods, this becomes a shorter-term MA
+    const relevantBars = bars.slice(-Math.min(150, bars.length));
     const sum = relevantBars.reduce((acc, bar) => acc + bar.c, 0);
     return sum / relevantBars.length;
   }
@@ -41,11 +42,11 @@ export class WeinsteinService {
    * Calculate volatility (standard deviation of returns)
    */
   static calculateVolatility(bars: Bar[]): number {
-    if (!bars || bars.length < 20) {
+    if (!bars || bars.length < 5) {
       return 0;
     }
 
-    const recentBars = bars.slice(-20);
+    const recentBars = bars.slice(-Math.min(20, bars.length));
     const returns = recentBars.map((bar, index) => {
       if (index === 0) return 0;
       return (bar.c - recentBars[index - 1].c) / recentBars[index - 1].c;
@@ -58,16 +59,18 @@ export class WeinsteinService {
 
   /**
    * Determine the Weinstein stage
+   * Works with available data - more bars provide better accuracy (150+ ideal)
    */
   static analyzeStage(
     currentPrice: number,
     historicalBars: Bar[]
   ): WeinsteinAnalysis {
-    if (!historicalBars || historicalBars.length < 150) {
+    // Work with any available data - minimum 1 bar
+    if (!historicalBars || historicalBars.length === 0) {
       return {
         stage: 1,
         stageName: 'Insufficient Data',
-        description: 'Not enough historical data for stage analysis (need 30+ weeks)',
+        description: 'No historical data available for stage analysis',
         thirtyWeekMA: 0,
         currentPrice,
         priceVsMA: 0,
@@ -76,19 +79,60 @@ export class WeinsteinService {
       };
     }
 
-    // Sort bars by date (oldest first)
-    const sortedBars = [...historicalBars].sort((a, b) => 
-      new Date(a.t).getTime() - new Date(b.t).getTime()
+    // Sort bars by date (oldest first), filter out invalid bars
+    // Be more lenient - allow bars even without timestamp if we have price data
+    const validBars = historicalBars.filter(bar => 
+      bar && !isNaN(bar.c) && bar.c > 0
     );
+    
+    if (validBars.length === 0) {
+      return {
+        stage: 1,
+        stageName: 'Insufficient Data',
+        description: 'No valid price data available for stage analysis',
+        thirtyWeekMA: 0,
+        currentPrice,
+        priceVsMA: 0,
+        trendStrength: 'Weak',
+        volatility: 'Low',
+      };
+    }
+    
+    // If we have very few bars (less than 5), provide a basic analysis
+    if (validBars.length < 5) {
+      const avgPrice = validBars.reduce((sum, bar) => sum + bar.c, 0) / validBars.length;
+      const priceVsMA = avgPrice > 0 ? ((currentPrice - avgPrice) / avgPrice) * 100 : 0;
+      const isAbove = priceVsMA > 0;
+      
+      return {
+        stage: isAbove ? 2 : 4,
+        stageName: isAbove ? 'Stage 2: Advancing (Limited Data)' : 'Stage 4: Declining (Limited Data)',
+        description: `Limited data analysis (${validBars.length} day(s) available). Price is ${isAbove ? 'above' : 'below'} average by ${Math.abs(priceVsMA).toFixed(1)}%. More data needed for accurate stage determination.`,
+        thirtyWeekMA: avgPrice,
+        currentPrice,
+        priceVsMA,
+        trendStrength: Math.abs(priceVsMA) > 5 ? 'Moderate' : 'Weak',
+        volatility: 'Low',
+      };
+    }
+    
+    // Sort bars by date if timestamps are available, otherwise maintain order
+    const sortedBars = validBars.every(b => b.t) 
+      ? [...validBars].sort((a, b) => {
+          const timeA = new Date(a.t!).getTime();
+          const timeB = new Date(b.t!).getTime();
+          return isNaN(timeA) || isNaN(timeB) ? 0 : timeA - timeB;
+        })
+      : [...validBars]; // If no timestamps, use as-is (assume already sorted)
 
     const thirtyWeekMA = this.calculate30WeekMA(sortedBars);
-    const priceVsMA = ((currentPrice - thirtyWeekMA) / thirtyWeekMA) * 100;
+    const priceVsMA = thirtyWeekMA > 0 ? ((currentPrice - thirtyWeekMA) / thirtyWeekMA) * 100 : 0;
     const volatility = this.calculateVolatility(sortedBars);
 
-    // Analyze recent trend
-    const recentBars = sortedBars.slice(-30);
-    const trend = this.analyzeTrend(recentBars);
-    const trendStrength = this.getTrendStrength(recentBars, trend);
+    // Analyze recent trend (use available data up to 30 bars)
+    const trendBars = sortedBars.slice(-Math.min(30, sortedBars.length));
+    const trend = this.analyzeTrend(trendBars);
+    const trendStrength = this.getTrendStrength(trendBars, trend);
 
     // Determine volatility level
     const volatilityLevel: 'High' | 'Medium' | 'Low' = 
@@ -101,13 +145,16 @@ export class WeinsteinService {
       priceVsMA,
       trend,
       volatilityLevel,
-      recentBars
+      trendBars
     );
+
+    // Indicate limited data in stage name if we have less than 150 bars
+    const dataQuality = sortedBars.length >= 150 ? '' : ' (Estimated)';
 
     return {
       stage,
-      stageName: this.getStageName(stage),
-      description: this.getStageDescription(stage, priceVsMA, trendStrength),
+      stageName: this.getStageName(stage) + dataQuality,
+      description: this.getStageDescription(stage, priceVsMA, trendStrength, sortedBars.length),
       thirtyWeekMA,
       currentPrice,
       priceVsMA,
@@ -121,6 +168,7 @@ export class WeinsteinService {
 
     const startPrice = bars[0].c;
     const endPrice = bars[bars.length - 1].c;
+    if (!startPrice || startPrice === 0) return 0;
     return ((endPrice - startPrice) / startPrice) * 100;
   }
 
@@ -193,17 +241,21 @@ export class WeinsteinService {
   private static getStageDescription(
     stage: WeinsteinStage,
     priceVsMA: number,
-    trendStrength: 'Strong' | 'Moderate' | 'Weak'
+    trendStrength: 'Strong' | 'Moderate' | 'Weak',
+    barsAvailable: number = 150
   ): string {
+    const maLabel = barsAvailable >= 150 ? '30-week MA' : `${barsAvailable}-day MA`;
+    const dataNote = barsAvailable < 150 ? ` (Based on ${barsAvailable} days of data)` : '';
+    
     switch (stage) {
       case 1:
-        return `Base building phase. Price is consolidating with ${trendStrength.toLowerCase()} trend. Look for accumulation patterns before potential breakout.`;
+        return `Base building phase. Price is consolidating with ${trendStrength.toLowerCase()} trend. Look for accumulation patterns before potential breakout.${dataNote}`;
       case 2:
-        return `Uptrend phase. Price is ${priceVsMA.toFixed(1)}% above 30-week MA with ${trendStrength.toLowerCase()} momentum. This is typically the best time to buy.`;
+        return `Uptrend phase. Price is ${priceVsMA.toFixed(1)}% above ${maLabel} with ${trendStrength.toLowerCase()} momentum. This is typically the best time to buy.${dataNote}`;
       case 3:
-        return `Distribution phase. High volatility and topping pattern detected. Price may be near highs but showing weakening momentum. Consider taking profits.`;
+        return `Distribution phase. High volatility and topping pattern detected. Price may be near highs but showing weakening momentum. Consider taking profits.${dataNote}`;
       case 4:
-        return `Downtrend phase. Price is ${Math.abs(priceVsMA).toFixed(1)}% below 30-week MA with ${trendStrength.toLowerCase()} downward momentum. Avoid buying, consider shorting or waiting.`;
+        return `Downtrend phase. Price is ${Math.abs(priceVsMA).toFixed(1)}% below ${maLabel} with ${trendStrength.toLowerCase()} downward momentum. Avoid buying, consider shorting or waiting.${dataNote}`;
       default:
         return 'Unable to determine stage.';
     }

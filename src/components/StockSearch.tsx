@@ -22,13 +22,27 @@ const StockSearch: React.FC<StockSearchProps> = ({ onStockSelect }) => {
 
     try {
       const data = await alpacaService.getMarketData(symbol.toUpperCase());
+      console.log('Stock data received:', {
+        symbol: data.symbol,
+        hasQuote: !!data.quote,
+        quoteKeys: data.quote ? Object.keys(data.quote) : [],
+        hasDailyBar: !!data.dailyBar,
+        historicalBarsCount: data.historicalBars?.length || 0,
+      });
+      
       if (data.quote && Object.keys(data.quote).length > 0) {
         onStockSelect(data);
+      } else if (data.historicalBars && data.historicalBars.length > 0) {
+        // Even if quote is empty, if we have bars, show the data
+        onStockSelect(data);
       } else {
-        setError('No data found for this symbol');
+        setError(`No data found for ${symbol.toUpperCase()}. Check browser console for details.`);
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Error fetching stock data. Please check your API credentials.');
+      console.error('Stock search error:', err);
+      const errorMessage = err.response?.data?.message || err.message || 'Error fetching stock data';
+      const errorDetails = err.response?.data ? JSON.stringify(err.response.data) : '';
+      setError(`${errorMessage}. ${errorDetails ? `Details: ${errorDetails}` : 'Please check your API credentials in .env file and browser console.'}`);
     } finally {
       setLoading(false);
     }
