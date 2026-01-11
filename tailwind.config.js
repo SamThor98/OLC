@@ -1,0 +1,71 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: [
+    "./index.html",
+    "./src/**/*.{js,ts,jsx,tsx}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        bison: {
+          50: '#faf8f5',
+          100: '#f5f0e8',
+          200: '#e8dcc8',
+          300: '#d4c2a3',
+          400: '#b89d7a',
+          500: '#9d7a5a',
+          600: '#8b6b4d',
+          700: '#6d5440',
+          800: '#5a4535',
+          900: '#4a382c',
+          950: '#2a1f18',
+        },
+        amber: {
+          50: '#fffbeb',
+          100: '#fef3c7',
+          200: '#fde68a',
+          300: '#fcd34d',
+          400: '#fbbf24',
+          500: '#f59e0b',
+          600: '#d97706',
+          700: '#b45309',
+          800: '#92400e',
+          900: '#78350f',
+        },
+        earth: {
+          50: '#f7f5f3',
+          100: '#ede8e2',
+          200: '#d9d0c4',
+          300: '#c0b2a0',
+          400: '#a8967d',
+          500: '#8f7a63',
+          600: '#7a6754',
+          700: '#655547',
+          800: '#54473d',
+          900: '#473d35',
+        },
+        primary: {
+          50: '#faf8f5',
+          100: '#f5f0e8',
+          200: '#e8dcc8',
+          300: '#d4c2a3',
+          400: '#b89d7a',
+          500: '#9d7a5a',
+          600: '#8b6b4d',
+          700: '#6d5440',
+          800: '#5a4535',
+          900: '#4a382c',
+        },
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        serif: ['Playfair Display', 'Georgia', 'serif'],
+      },
+      boxShadow: {
+        'bison': '0 4px 6px -1px rgba(74, 56, 44, 0.1), 0 2px 4px -1px rgba(74, 56, 44, 0.06)',
+        'bison-lg': '0 10px 15px -3px rgba(74, 56, 44, 0.1), 0 4px 6px -2px rgba(74, 56, 44, 0.05)',
+      },
+    },
+  },
+  plugins: [],
+}

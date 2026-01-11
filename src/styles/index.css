@@ -1,0 +1,81 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:wght@400;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    margin: 0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+      'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+      sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: linear-gradient(to bottom, #faf8f5 0%, #f5f0e8 100%);
+    min-height: 100vh;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-weight: 700;
+  }
+
+  code {
+    font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+      monospace;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    background: linear-gradient(135deg, #9d7a5a 0%, #6d5440 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .bg-bison-gradient {
+    background: linear-gradient(135deg, #6d5440 0%, #4a382c 50%, #2a1f18 100%);
+  }
+
+  .bg-bison-light {
+    background: linear-gradient(135deg, #faf8f5 0%, #f5f0e8 100%);
+  }
+
+  .border-bison {
+    border-color: #9d7a5a;
+  }
+
+  .shadow-bison-glow {
+    box-shadow: 0 0 20px rgba(157, 122, 90, 0.3);
+  }
+}
+
+/* Custom scrollbar - Bison theme */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f5f0e8;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #9d7a5a 0%, #6d5440 100%);
+  border-radius: 5px;
+  border: 2px solid #f5f0e8;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #8b6b4d 0%, #5a4535 100%);
+}
+
+/* Smooth transitions */
+* {
+  transition-property: color, background-color, border-color, transform, box-shadow;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 200ms;
+}
