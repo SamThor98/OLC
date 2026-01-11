@@ -105,15 +105,33 @@ class AlpacaService {
     }
   }
 
-  async getBars(symbol: string, timeframe: string = '1Day', limit: number = 30): Promise<Bar[]> {
+  /**
+   * Get historical bars for a symbol
+   * @param symbol Stock symbol
+   * @param timeframe Bar timeframe (1Min, 5Min, 15Min, 1Hour, 1Day)
+   * @param limit Maximum number of bars (Alpaca max is typically 10000)
+   * @param start Optional start date (ISO format)
+   * @param end Optional end date (ISO format)
+   */
+  async getBars(
+    symbol: string, 
+    timeframe: string = '1Day', 
+    limit: number = 30,
+    start?: string,
+    end?: string
+  ): Promise<Bar[]> {
     try {
-      const response = await this.client.get('/stocks/bars', {
-        params: {
-          symbols: symbol,
-          timeframe,
-          limit,
-        },
-      });
+      const params: any = {
+        symbols: symbol,
+        timeframe,
+        limit: Math.min(limit, 10000), // Respect Alpaca's max limit
+      };
+      
+      // Use date range if provided (more reliable than just limit)
+      if (start) params.start = start;
+      if (end) params.end = end;
+      
+      const response = await this.client.get('/stocks/bars', { params });
       
       // Log the response for debugging
       console.log(`Alpaca API getBars response for ${symbol}:`, {
@@ -163,23 +181,65 @@ class AlpacaService {
     }
   }
 
+  /**
+   * Get comprehensive market data for a symbol
+   * Fetches quote, daily bar, and extended historical data for analysis
+   */
   async getMarketData(symbol: string): Promise<MarketData> {
     try {
-      // Try to fetch more historical data first, then fall back to less if needed
-      // Start with 245 days (35 weeks), but if that fails, try smaller amounts
-      let historicalBars: Bar[] | null = null;
-      const limitsToTry = [245, 100, 50, 30];
+      // Calculate date range for better data retrieval
+      // Request 1 year of data (252 trading days) for proper CANSLIM/Weinstein analysis
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setFullYear(startDate.getFullYear() - 1);
       
-      for (const limit of limitsToTry) {
-        try {
-          historicalBars = await this.getBars(symbol, '1Day', limit);
-          if (historicalBars.length > 0) {
-            console.log(`Successfully fetched ${historicalBars.length} historical bars with limit ${limit}`);
-            break;
+      // Try to fetch extended historical data using date range
+      let historicalBars: Bar[] | null = null;
+      
+      // Strategy: Try date range first, then fall back to limit-based
+      try {
+        // Request 1 year of daily bars (252 trading days)
+        historicalBars = await this.getBars(
+          symbol, 
+          '1Day', 
+          252,
+          startDate.toISOString().split('T')[0],
+          endDate.toISOString().split('T')[0]
+        );
+        
+        if (historicalBars.length === 0) {
+          // Fall back to limit-based approach
+          const limitsToTry = [252, 100, 50, 30];
+          for (const limit of limitsToTry) {
+            try {
+              historicalBars = await this.getBars(symbol, '1Day', limit);
+              if (historicalBars.length > 0) {
+                console.log(`Fetched ${historicalBars.length} bars using limit ${limit}`);
+                break;
+              }
+            } catch (err) {
+              console.warn(`Failed to fetch ${limit} bars, trying smaller amount...`);
+              continue;
+            }
           }
-        } catch (err) {
-          console.warn(`Failed to fetch ${limit} bars, trying smaller amount...`);
-          continue;
+        } else {
+          console.log(`Successfully fetched ${historicalBars.length} historical bars using date range`);
+        }
+      } catch (err) {
+        console.warn('Date range fetch failed, trying limit-based approach...', err);
+        // Fall back to limit-based
+        const limitsToTry = [252, 100, 50, 30];
+        for (const limit of limitsToTry) {
+          try {
+            historicalBars = await this.getBars(symbol, '1Day', limit);
+            if (historicalBars.length > 0) {
+              console.log(`Fetched ${historicalBars.length} bars using limit ${limit}`);
+              break;
+            }
+          } catch (err2) {
+            console.warn(`Failed to fetch ${limit} bars, trying smaller amount...`);
+            continue;
+          }
         }
       }
 
@@ -252,6 +312,90 @@ class AlpacaService {
     } catch (error) {
       console.error(`Error fetching market data for ${symbol}:`, error);
       throw error;
+    }
+  }
+
+  /**
+   * Batch fetch market data for multiple symbols (for scanner functionality)
+   * Uses Alpaca's multi-symbol bars endpoint for efficiency
+   */
+  async getBatchMarketData(symbols: string[]): Promise<Map<string, MarketData>> {
+    const results = new Map<string, MarketData>();
+    const maxBatchSize = 100; // Alpaca typically allows up to 100 symbols per request
+    
+    // Process in batches to avoid API limits
+    for (let i = 0; i < symbols.length; i += maxBatchSize) {
+      const batch = symbols.slice(i, i + maxBatchSize);
+      
+      try {
+        // Fetch quotes and bars in parallel for the batch
+        const [quotes, bars] = await Promise.all([
+          Promise.allSettled(batch.map(symbol => this.getQuote(symbol))),
+          this.getBatchBars(batch, '1Day', 30).catch(() => new Map()),
+        ]);
+        
+        // Process results
+        batch.forEach((symbol, index) => {
+          const quoteResult = quotes[index];
+          const quote = quoteResult.status === 'fulfilled' ? quoteResult.value : null;
+          const symbolBars = (bars as Map<string, Bar[]>).get(symbol) || [];
+          
+          const dailyBar = symbolBars.length > 0 ? symbolBars[symbolBars.length - 1] : undefined;
+          const historicalBars = symbolBars.length > 1 ? symbolBars : undefined;
+          
+          results.set(symbol, {
+            symbol,
+            quote: quote || {} as StockQuote,
+            dailyBar,
+            historicalBars,
+          });
+        });
+      } catch (error) {
+        console.error(`Error processing batch ${i / maxBatchSize + 1}:`, error);
+        // Continue with other batches
+      }
+    }
+    
+    return results;
+  }
+  
+  /**
+   * Get bars for multiple symbols at once (more efficient than individual calls)
+   */
+  async getBatchBars(symbols: string[], timeframe: string = '1Day', limit: number = 30): Promise<Map<string, Bar[]>> {
+    try {
+      const response = await this.client.get('/stocks/bars', {
+        params: {
+          symbols: symbols.join(','),
+          timeframe,
+          limit: Math.min(limit, 10000),
+        },
+      });
+      
+      const results = new Map<string, Bar[]>();
+      const barsData = response.data.bars || {};
+      
+      symbols.forEach(symbol => {
+        const bars = barsData[symbol] || [];
+        const mappedBars = bars.map((bar: any) => ({
+          o: bar.o || 0,
+          h: bar.h || 0,
+          l: bar.l || 0,
+          c: bar.c || 0,
+          v: bar.v || 0,
+          t: bar.t || '',
+        })).filter((bar: Bar) => bar.c > 0);
+        
+        results.set(symbol, mappedBars);
+      });
+      
+      return results;
+    } catch (error: any) {
+      console.error('Error fetching batch bars:', {
+        message: error.message,
+        response: error.response?.data,
+      });
+      return new Map();
     }
   }
 
