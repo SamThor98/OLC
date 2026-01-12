@@ -20,11 +20,18 @@ export interface Bar {
   t: string; // timestamp
 }
 
+import { EarningsData, CompanyOverview, IncomeStatement } from './alphaVantageService';
+
 export interface MarketData {
   symbol: string;
   quote: StockQuote;
   dailyBar?: Bar;
   historicalBars?: Bar[]; // For CANSLIM and Weinstein analysis
+  fundamentals?: {
+    earnings?: EarningsData;
+    overview?: CompanyOverview;
+    incomeStatement?: IncomeStatement;
+  };
 }
 
 export interface AlpacaConfig {
@@ -160,7 +167,7 @@ class AlpacaService {
       }));
       
       // Filter out invalid bars (all zeros or missing close price)
-      const validBars = mappedBars.filter(bar => bar.c > 0);
+      const validBars = mappedBars.filter((bar: Bar) => bar.c > 0);
       
       if (validBars.length < mappedBars.length) {
         console.warn(`Filtered out ${mappedBars.length - validBars.length} invalid bars for ${symbol}`);
@@ -292,7 +299,7 @@ class AlpacaService {
         } : null,
         historicalBarsCount: allHistoricalBars.length,
         dailyBarsCount: dailyBars?.length || 0,
-        validBarsCount: allHistoricalBars.filter(b => b.c > 0).length,
+        validBarsCount: allHistoricalBars.filter((b: Bar) => b.c > 0).length,
         sampleBar: allHistoricalBars[0] ? {
           o: allHistoricalBars[0].o,
           h: allHistoricalBars[0].h,
@@ -303,11 +310,30 @@ class AlpacaService {
         } : null,
       });
 
+      // Fetch fundamental data from Alpha Vantage if available
+      let fundamentals: MarketData['fundamentals'] = undefined;
+      try {
+        // Dynamically import to avoid circular dependency
+        const { alphaVantageService } = await import('./alphaVantageService');
+        if (alphaVantageService) {
+          console.log(`Fetching fundamental data for ${symbol} from Alpha Vantage...`);
+          const fundamentalData = await alphaVantageService.getFundamentals(symbol);
+          if (fundamentalData.earnings || fundamentalData.overview || fundamentalData.incomeStatement) {
+            fundamentals = fundamentalData;
+            console.log(`Successfully fetched fundamental data for ${symbol}`);
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to fetch fundamental data for ${symbol}:`, error);
+        // Continue without fundamental data - not critical for basic functionality
+      }
+
       return {
         symbol,
         quote: quote || {} as StockQuote,
         dailyBar: finalDailyBar,
         historicalBars: allHistoricalBars.length > 0 ? allHistoricalBars : undefined,
+        fundamentals,
       };
     } catch (error) {
       console.error(`Error fetching market data for ${symbol}:`, error);
@@ -460,7 +486,7 @@ const getAlpacaService = (): AlpacaService | null => {
     apiKeyLength: apiKey?.length || 0,
     secretKeyLength: secretKey?.length || 0,
     usePaperTrading,
-    envKeys: Object.keys(import.meta.env).filter(k => k.startsWith('VITE_ALPACA')),
+    envKeys: Object.keys(import.meta.env).filter((k: string) => k.startsWith('VITE_ALPACA')),
   });
 
   if (!apiKey || !secretKey) {
