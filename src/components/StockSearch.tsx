@@ -59,12 +59,12 @@ const StockSearch: React.FC<StockSearchProps> = ({ onStockSelect }) => {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-bison-lg p-8 border-2 border-bison-200 hover:shadow-bison-glow transition-all duration-300">
+    <form onSubmit={handleSubmit} className="ap-card rounded-lg shadow-ap-lg p-8 hover:shadow-ap-glow transition-all duration-300 relative z-10">
       <div className="flex items-center space-x-3 mb-6 pb-4 border-b-2 border-bison-200">
         <span className="text-3xl">🔍</span>
         <div>
-          <h3 className="text-3xl font-bold text-bison-800">Search Stock</h3>
-          <p className="text-sm text-bison-600 mt-1">Enter a stock symbol to begin analysis</p>
+          <h3 className="text-3xl font-bold text-gold-400">Search Stock</h3>
+          <p className="text-sm text-ap-200 mt-1">Enter a stock symbol to begin analysis</p>
         </div>
       </div>
       <div className="flex gap-4">
@@ -73,18 +73,18 @@ const StockSearch: React.FC<StockSearchProps> = ({ onStockSelect }) => {
           value={symbol}
           onChange={(e) => setSymbol(e.target.value.toUpperCase())}
           placeholder="Enter symbol (e.g., AAPL, MSFT, TSLA)"
-          className="flex-1 px-6 py-4 border-2 border-bison-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-amber-500 text-bison-800 font-medium text-lg disabled:bg-bison-50 disabled:cursor-not-allowed transition-all"
+          className="flex-1 px-6 py-4 border border-gold-500/30 bg-ap-800 rounded-lg focus:outline-none focus:ring-2 focus:ring-gold-500 focus:border-gold-500 text-ap-100 font-medium text-lg disabled:bg-ap-900 disabled:cursor-not-allowed transition-all"
           disabled={loading}
         />
         <button
           type="submit"
           disabled={loading || !symbol.trim()}
-          className="bg-bison-gradient text-white px-8 py-4 rounded-xl font-bold text-lg hover:shadow-bison-lg disabled:bg-bison-400 disabled:cursor-not-allowed transition-all duration-300 transform hover:scale-105 disabled:transform-none border-2 border-bison-700"
+          className="bg-gold-500 text-ap-900 px-8 py-4 rounded-lg font-bold text-lg hover:shadow-ap-glow disabled:bg-ap-700 disabled:cursor-not-allowed transition-all duration-300 transform hover:scale-105 disabled:transform-none border border-gold-400"
         >
           {loading ? (
             <span className="flex items-center space-x-2">
               <span>Loading...</span>
-              <span className="animate-spin">🐂</span>
+              <span className="animate-spin">⏳</span>
             </span>
           ) : (
             'Search'

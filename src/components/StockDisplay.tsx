@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { MarketData } from '../services/alpacaService';
 import { CANSLIMService } from '../services/canslimService';
 import { WeinsteinService } from '../services/weinsteinService';
+import { EarningsData, CompanyOverview } from '../services/alphaVantageService';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface StockDisplayProps {
@@ -68,7 +69,7 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
     
     try {
       // Pass fundamental data if available
-      const fundamentals = data.fundamentals ? {
+      const fundamentals: { earnings?: EarningsData; overview?: CompanyOverview } | undefined = data.fundamentals ? {
         earnings: data.fundamentals.earnings,
         overview: data.fundamentals.overview,
       } : undefined;
@@ -201,15 +202,15 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
   ] : [];
 
   return (
-    <div className="bg-white rounded-2xl shadow-bison-lg p-8 mt-8 border-2 border-bison-200 hover:shadow-bison-glow transition-all duration-300">
-      <div className="flex items-center justify-between mb-8 pb-6 border-b-2 border-bison-200">
+    <div className="ap-card rounded-lg shadow-ap-lg p-8 mt-8 hover:shadow-ap-glow transition-all duration-300 relative z-10">
+          <div className="flex items-center justify-between mb-8 pb-6 border-b border-gold-500/20">
         <div className="flex items-center space-x-4">
-          <div className="w-16 h-16 bg-bison-gradient rounded-xl flex items-center justify-center shadow-bison">
+          <div className="w-16 h-16 bg-ap-gradient border border-gold-500/40 rounded-lg flex items-center justify-center shadow-ap">
             <span className="text-white font-bold text-2xl">{data.symbol.charAt(0)}</span>
           </div>
           <div>
-            <h3 className="text-4xl font-bold text-bison-800">{data.symbol}</h3>
-            <p className="text-sm text-bison-600 font-medium">Market Analysis</p>
+            <h3 className="text-4xl font-bold text-gold-400">{data.symbol}</h3>
+            <p className="text-sm text-ap-200 font-medium">Market Analysis</p>
           </div>
         </div>
         {dailyBar && (
@@ -227,11 +228,11 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
       {/* CANSLIM and Weinstein Analysis Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
         {/* CANSLIM Grade Card */}
-        <div className={`rounded-2xl border-2 p-6 shadow-bison hover:shadow-bison-lg transition-all duration-300 transform hover:scale-[1.02] ${canslimScore ? getGradeColor(canslimScore.overallGrade) : 'bg-bison-50 border-bison-300'}`}>
-          <div className="flex items-center justify-between mb-6 pb-4 border-b-2 border-bison-200">
+        <div className={`rounded-lg border border-gold-500/30 p-6 shadow-ap hover:shadow-ap-lg transition-all duration-300 transform hover:scale-[1.02] ${canslimScore ? getGradeColor(canslimScore.overallGrade) : 'ap-card'} relative z-10`}>
+          <div className="flex items-center justify-between mb-6 pb-4 border-b border-gold-500/20">
             <div>
-              <h4 className="text-2xl font-bold text-bison-800">CANSLIM Grade</h4>
-              <p className="text-xs text-bison-600 mt-1">Comprehensive Analysis</p>
+              <h4 className="text-2xl font-bold text-gold-400">CANSLIM Grade</h4>
+              <p className="text-xs text-ap-300 mt-1">Comprehensive Analysis</p>
             </div>
             {canslimScore && (
               <div className={`text-6xl font-bold ${getGradeTextColor(canslimScore.overallGrade)} drop-shadow-lg`}>
@@ -390,7 +391,7 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        <div className="bg-bison-50 rounded-xl p-6 border-2 border-bison-200 shadow-bison">
+        <div className="ap-card rounded-lg p-6 shadow-ap relative z-10">
           <h4 className="text-xl font-bold text-bison-800 mb-4 pb-2 border-b-2 border-bison-200">Quote Information</h4>
           <div className="space-y-3">
             {quote.last_price && (
@@ -427,7 +428,7 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
         </div>
 
         {dailyBar && (
-          <div className="bg-bison-50 rounded-xl p-6 border-2 border-bison-200 shadow-bison">
+          <div className="ap-card rounded-lg p-6 shadow-ap relative z-10">
             <h4 className="text-xl font-bold text-bison-800 mb-4 pb-2 border-b-2 border-bison-200">Weekly Statistics</h4>
             <div className="space-y-3">
               <div className="flex justify-between py-3 border-b border-bison-200">

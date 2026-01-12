@@ -7,6 +7,44 @@ export default {
   theme: {
     extend: {
       colors: {
+        ap: {
+          50: '#f8f9fa',
+          100: '#e9ecef',
+          200: '#dee2e6',
+          300: '#ced4da',
+          400: '#adb5bd',
+          500: '#6c757d',
+          600: '#495057',
+          700: '#343a40',
+          800: '#212529',
+          900: '#0d1117',
+          950: '#000000',
+        },
+        navy: {
+          50: '#f0f4f8',
+          100: '#d9e2ec',
+          200: '#bcccdc',
+          300: '#9fb3c8',
+          400: '#829ab1',
+          500: '#627d98',
+          600: '#486581',
+          700: '#334e68',
+          800: '#243b53',
+          900: '#102a43',
+          950: '#0a1929',
+        },
+        gold: {
+          50: '#fffef7',
+          100: '#fffceb',
+          200: '#fff8d6',
+          300: '#fff2b8',
+          400: '#ffe99a',
+          500: '#ffd700',
+          600: '#e6c200',
+          700: '#ccad00',
+          800: '#b39900',
+          900: '#998500',
+        },
         bison: {
           50: '#faf8f5',
           100: '#f5f0e8',
@@ -60,8 +98,12 @@ export default {
       fontFamily: {
         sans: ['Inter', 'system-ui', 'sans-serif'],
         serif: ['Playfair Display', 'Georgia', 'serif'],
+        luxury: ['Cormorant Garamond', 'Playfair Display', 'serif'],
       },
       boxShadow: {
+        'ap': '0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2)',
+        'ap-lg': '0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.3)',
+        'ap-glow': '0 0 30px rgba(255, 215, 0, 0.3)',
         'bison': '0 4px 6px -1px rgba(74, 56, 44, 0.1), 0 2px 4px -1px rgba(74, 56, 44, 0.06)',
         'bison-lg': '0 10px 15px -3px rgba(74, 56, 44, 0.1), 0 4px 6px -2px rgba(74, 56, 44, 0.05)',
       },

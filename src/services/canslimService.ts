@@ -1,4 +1,5 @@
 import { Bar } from './alpacaService';
+import { EarningsData, CompanyOverview } from './alphaVantageService';
 
 export interface CANSLIMScore {
   overallGrade: 'A' | 'B' | 'C' | 'D' | 'F';
@@ -23,11 +24,16 @@ export interface CANSLIMScore {
 export class CANSLIMService {
   /**
    * Calculate CANSLIM score based on available market data
+   * Now supports real earnings data from Alpha Vantage
    */
   static calculateScore(
     currentPrice: number,
     historicalBars: Bar[],
-    volume: number
+    volume: number,
+    fundamentals?: {
+      earnings?: EarningsData;
+      overview?: CompanyOverview;
+    }
   ): CANSLIMScore {
     // Work with any available data - minimum 1 bar
     if (!historicalBars || historicalBars.length === 0) {
@@ -67,20 +73,26 @@ export class CANSLIMService {
 
     const scores = {
       // C: Current quarterly earnings per share (EPS) - should be up 25%+
-      // Note: Without earnings data, we use price momentum as a proxy
-      c: this.scoreCurrentQuarterlyEarnings(sortedBars),
+      // Use real earnings data if available, otherwise fall back to price momentum
+      c: fundamentals?.earnings
+        ? this.scoreCurrentQuarterlyEarningsWithData(fundamentals.earnings)
+        : this.scoreCurrentQuarterlyEarnings(sortedBars),
       
       // A: Annual earnings growth - should be up 25%+ over last 3 years
-      // Note: Without earnings data, we use annual price appreciation
-      a: this.scoreAnnualEarningsGrowth(sortedBars),
+      // Use real earnings data if available, otherwise fall back to price appreciation
+      a: fundamentals?.earnings
+        ? this.scoreAnnualEarningsGrowthWithData(fundamentals.earnings)
+        : this.scoreAnnualEarningsGrowth(sortedBars),
       
       // N: New products, new management, new highs
       // Check if stock is making new highs
       n: this.scoreNewHighs(currentPrice, sortedBars),
       
       // S: Supply and demand - small number of shares outstanding
-      // Use volume patterns as proxy
-      s: this.scoreSupplyAndDemand(volume, sortedBars),
+      // Use real shares outstanding if available, otherwise use volume patterns
+      s: fundamentals?.overview?.SharesOutstanding
+        ? this.scoreSupplyAndDemandWithData(volume, sortedBars, fundamentals.overview.SharesOutstanding)
+        : this.scoreSupplyAndDemand(volume, sortedBars),
       
       // L: Leader or laggard - should be a market leader
       // Compare price performance vs average
@@ -111,6 +123,64 @@ export class CANSLIMService {
       scores,
       totalScore,
       maxTotalScore,
+    };
+  }
+
+  /**
+   * Score quarterly earnings using REAL earnings data from Alpha Vantage
+   */
+  private static scoreCurrentQuarterlyEarningsWithData(earnings: EarningsData): { score: number; maxScore: number; description: string } {
+    if (!earnings.quarterlyEarnings || earnings.quarterlyEarnings.length < 2) {
+      return { score: 0, maxScore: 15, description: 'Insufficient quarterly earnings data' };
+    }
+
+    // Get the two most recent quarters
+    const quarters = earnings.quarterlyEarnings.slice(0, 2);
+    const currentQuarter = quarters[0];
+    const previousQuarter = quarters[1];
+
+    const currentEPS = parseFloat(currentQuarter.reportedEPS);
+    const previousEPS = parseFloat(previousQuarter.reportedEPS);
+
+    if (isNaN(currentEPS) || isNaN(previousEPS) || previousEPS === 0) {
+      return { score: 0, maxScore: 15, description: 'Invalid earnings data' };
+    }
+
+    const growthPercent = ((currentEPS - previousEPS) / Math.abs(previousEPS)) * 100;
+
+    // CANSLIM target: 25%+ growth
+    if (growthPercent >= 25) {
+      return { 
+        score: 15, 
+        maxScore: 15, 
+        description: `Strong quarterly EPS growth: ${growthPercent.toFixed(1)}% (${currentQuarter.fiscalDateEnding})` 
+      };
+    }
+    if (growthPercent >= 15) {
+      return { 
+        score: 12, 
+        maxScore: 15, 
+        description: `Good quarterly EPS growth: ${growthPercent.toFixed(1)}% (${currentQuarter.fiscalDateEnding})` 
+      };
+    }
+    if (growthPercent >= 5) {
+      return { 
+        score: 8, 
+        maxScore: 15, 
+        description: `Moderate quarterly EPS growth: ${growthPercent.toFixed(1)}% (${currentQuarter.fiscalDateEnding})` 
+      };
+    }
+    if (growthPercent >= 0) {
+      return { 
+        score: 5, 
+        maxScore: 15, 
+        description: `Weak quarterly EPS growth: ${growthPercent.toFixed(1)}% (${currentQuarter.fiscalDateEnding})` 
+      };
+    }
+    return { 
+      score: 2, 
+      maxScore: 15, 
+      description: `Negative quarterly EPS growth: ${growthPercent.toFixed(1)}% (${currentQuarter.fiscalDateEnding})` 
     };
   }
 
@@ -149,6 +219,64 @@ export class CANSLIMService {
     if (changePercent >= 5) return { score: 8, maxScore: 15, description: `Moderate ${period} momentum: +${changePercent.toFixed(1)}%` };
     if (changePercent >= 0) return { score: 5, maxScore: 15, description: `Weak ${period} momentum: +${changePercent.toFixed(1)}%` };
     return { score: 2, maxScore: 15, description: `Negative ${period} momentum: ${changePercent.toFixed(1)}%` };
+  }
+
+  /**
+   * Score annual earnings using REAL earnings data from Alpha Vantage
+   */
+  private static scoreAnnualEarningsGrowthWithData(earnings: EarningsData): { score: number; maxScore: number; description: string } {
+    if (!earnings.annualEarnings || earnings.annualEarnings.length < 2) {
+      return { score: 0, maxScore: 15, description: 'Insufficient annual earnings data (need at least 2 years)' };
+    }
+
+    // Get the two most recent years
+    const years = earnings.annualEarnings.slice(0, 2);
+    const currentYear = years[0];
+    const previousYear = years[1];
+
+    const currentEPS = parseFloat(currentYear.reportedEPS);
+    const previousEPS = parseFloat(previousYear.reportedEPS);
+
+    if (isNaN(currentEPS) || isNaN(previousEPS) || previousEPS === 0) {
+      return { score: 0, maxScore: 15, description: 'Invalid annual earnings data' };
+    }
+
+    const growthPercent = ((currentEPS - previousEPS) / Math.abs(previousEPS)) * 100;
+
+    // CANSLIM target: 25%+ annual growth
+    if (growthPercent >= 25) {
+      return { 
+        score: 15, 
+        maxScore: 15, 
+        description: `Strong annual EPS growth: ${growthPercent.toFixed(1)}% (${currentYear.fiscalDateEnding})` 
+      };
+    }
+    if (growthPercent >= 15) {
+      return { 
+        score: 12, 
+        maxScore: 15, 
+        description: `Good annual EPS growth: ${growthPercent.toFixed(1)}% (${currentYear.fiscalDateEnding})` 
+      };
+    }
+    if (growthPercent >= 5) {
+      return { 
+        score: 8, 
+        maxScore: 15, 
+        description: `Moderate annual EPS growth: ${growthPercent.toFixed(1)}% (${currentYear.fiscalDateEnding})` 
+      };
+    }
+    if (growthPercent >= 0) {
+      return { 
+        score: 5, 
+        maxScore: 15, 
+        description: `Weak annual EPS growth: ${growthPercent.toFixed(1)}% (${currentYear.fiscalDateEnding})` 
+      };
+    }
+    return { 
+      score: 2, 
+      maxScore: 15, 
+      description: `Negative annual EPS growth: ${growthPercent.toFixed(1)}% (${currentYear.fiscalDateEnding})` 
+    };
   }
 
   private static scoreAnnualEarningsGrowth(bars: Bar[]): { score: number; maxScore: number; description: string } {
@@ -216,6 +344,58 @@ export class CANSLIMService {
       return { score: 8, maxScore: 15, description: 'Moderate distance from highs' };
     }
     return { score: 4, maxScore: 15, description: 'Well below highs' };
+  }
+
+  /**
+   * Score supply and demand using REAL shares outstanding data
+   */
+  private static scoreSupplyAndDemandWithData(
+    volume: number, 
+    bars: Bar[], 
+    sharesOutstanding: string
+  ): { score: number; maxScore: number; description: string } {
+    const shares = parseFloat(sharesOutstanding);
+    
+    if (isNaN(shares) || shares <= 0) {
+      // Fall back to volume-based scoring
+      return this.scoreSupplyAndDemand(volume, bars);
+    }
+
+    // Convert to millions for easier reading
+    const sharesInMillions = shares / 1000000;
+    
+    // CANSLIM prefers smaller float (less supply = better)
+    // Generally: < 50M shares = excellent, 50-200M = good, 200-500M = moderate, > 500M = poor
+    let score = 0;
+    let description = '';
+
+    if (sharesInMillions < 50) {
+      score = 10;
+      description = `Excellent: ${sharesInMillions.toFixed(1)}M shares outstanding (low float)`;
+    } else if (sharesInMillions < 200) {
+      score = 8;
+      description = `Good: ${sharesInMillions.toFixed(1)}M shares outstanding`;
+    } else if (sharesInMillions < 500) {
+      score = 6;
+      description = `Moderate: ${sharesInMillions.toFixed(1)}M shares outstanding`;
+    } else {
+      score = 3;
+      description = `High float: ${sharesInMillions.toFixed(1)}M shares outstanding`;
+    }
+
+    // Factor in volume activity
+    if (bars.length >= 2) {
+      const recentBars = bars.slice(-Math.min(20, bars.length));
+      const avgVolume = recentBars.reduce((sum, b) => sum + b.v, 0) / recentBars.length;
+      const volumeRatio = volume / avgVolume;
+      
+      if (volumeRatio >= 1.5) {
+        score = Math.min(10, score + 1); // Boost score for high volume
+        description += `, strong volume activity`;
+      }
+    }
+
+    return { score, maxScore: 10, description };
   }
 
   private static scoreSupplyAndDemand(volume: number, bars: Bar[]): { score: number; maxScore: number; description: string } {

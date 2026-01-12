@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:wght@400;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:wght@400;600;700&family=Cormorant+Garamond:wght@300;400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -12,13 +12,32 @@
       sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    background: linear-gradient(to bottom, #faf8f5 0%, #f5f0e8 100%);
+    background: 
+      linear-gradient(to bottom, #0a1929 0%, #102a43 50%, #243b53 100%);
+    background-attachment: fixed;
     min-height: 100vh;
+    position: relative;
+    color: #e9ecef;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: 
+      radial-gradient(circle at 20% 50%, rgba(255, 215, 0, 0.03) 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, rgba(255, 215, 0, 0.02) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
   }
 
   h1, h2, h3, h4, h5, h6 {
-    font-family: 'Playfair Display', Georgia, serif;
-    font-weight: 700;
+    font-family: 'Cormorant Garamond', 'Playfair Display', Georgia, serif;
+    font-weight: 600;
+    letter-spacing: 0.5px;
   }
 
   code {
@@ -35,12 +54,46 @@
     background-clip: text;
   }
 
-  .bg-bison-gradient {
-    background: linear-gradient(135deg, #6d5440 0%, #4a382c 50%, #2a1f18 100%);
+  .bg-ap-gradient {
+    background: 
+      linear-gradient(135deg, #0a1929 0%, #102a43 30%, #243b53 60%, #334e68 100%);
+    position: relative;
   }
 
-  .bg-bison-light {
-    background: linear-gradient(135deg, #faf8f5 0%, #f5f0e8 100%);
+  .bg-ap-gradient::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image: 
+      repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255, 215, 0, 0.03) 2px, rgba(255, 215, 0, 0.03) 4px),
+      repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(255, 215, 0, 0.03) 2px, rgba(255, 215, 0, 0.03) 4px);
+    background-size: 20px 20px;
+    pointer-events: none;
+    opacity: 0.5;
+  }
+
+  .bg-ap-light {
+    background: 
+      linear-gradient(to bottom, #1a2332 0%, #243b53 50%, #334e68 100%);
+    background-attachment: fixed;
+  }
+
+  .tapisserie {
+    background-image: 
+      repeating-linear-gradient(0deg, transparent, transparent 4px, rgba(255, 215, 0, 0.05) 4px, rgba(255, 215, 0, 0.05) 8px),
+      repeating-linear-gradient(90deg, transparent, transparent 4px, rgba(255, 215, 0, 0.05) 4px, rgba(255, 215, 0, 0.05) 8px);
+    background-size: 8px 8px;
+  }
+
+  .weathered-texture {
+    background-image: 
+      linear-gradient(rgba(0, 0, 0, 0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0, 0, 0, 0.02) 1px, transparent 1px),
+      url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23000000' fill-opacity='0.03'%3E%3Cpath d='M20 20.5V18H0v-2h20v-2H0v-2h20v-2H0V8h20V6H0V4h20V2H0V0h22v20h2V0h2v20h2V0h2v20h2V0h2v20h2v2H20v-1.5zM0 20h2v20H0V20zm4 0h2v20H4V20zm4 0h2v20H8V20zm12 0h2v20h-2V20zm4 0h2v20h-2V20zm4 0h2v20h-2V20zM0 24h2v2H0v-2zm4 0h2v2H4v-2zm4 0h2v2H8v-2zm8 0h2v2h-2v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2zM0 28h2v2H0v-2zm4 0h2v2H4v-2zm4 0h2v2H8v-2zm8 0h2v2h-2v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2zM0 32h2v2H0v-2zm4 0h2v2H4v-2zm4 0h2v2H8v-2zm8 0h2v2h-2v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2zM0 36h2v2H0v-2zm4 0h2v2H4v-2zm4 0h2v2H8v-2zm8 0h2v2h-2v-2zm4 0h2v2h-2v-2zm4 0h2v2h-2v-2z'/%3E%3C/g%3E%3C/svg%3E");
+    background-size: 20px 20px, 20px 20px, 40px 40px;
   }
 
   .border-bison {
@@ -50,27 +103,67 @@
   .shadow-bison-glow {
     box-shadow: 0 0 20px rgba(157, 122, 90, 0.3);
   }
+
+  .weathered-border {
+    border: 2px solid rgba(109, 84, 64, 0.3);
+    box-shadow: 
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      inset 0 -1px 0 rgba(0, 0, 0, 0.1),
+      0 2px 4px rgba(0, 0, 0, 0.1);
+  }
+
+  .ap-card {
+    background: 
+      linear-gradient(135deg, rgba(26, 35, 50, 0.95) 0%, rgba(36, 59, 83, 0.98) 100%);
+    border: 1px solid rgba(255, 215, 0, 0.2);
+    box-shadow: 
+      0 8px 16px -4px rgba(0, 0, 0, 0.5),
+      0 4px 8px -2px rgba(0, 0, 0, 0.3),
+      inset 0 1px 0 rgba(255, 215, 0, 0.1);
+    position: relative;
+  }
+
+  .ap-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-image: 
+      repeating-linear-gradient(0deg, transparent, transparent 3px, rgba(255, 215, 0, 0.03) 3px, rgba(255, 215, 0, 0.03) 6px),
+      repeating-linear-gradient(90deg, transparent, transparent 3px, rgba(255, 215, 0, 0.03) 3px, rgba(255, 215, 0, 0.03) 6px);
+    background-size: 6px 6px;
+    pointer-events: none;
+    opacity: 0.4;
+  }
+
+  .weathered-text {
+    text-shadow: 
+      0 1px 2px rgba(0, 0, 0, 0.1),
+      0 0 1px rgba(74, 56, 44, 0.3);
+  }
 }
 
-/* Custom scrollbar - Bison theme */
+/* Custom scrollbar - Audemars Piguet theme */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #f5f0e8;
+  background: #0a1929;
   border-radius: 5px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #9d7a5a 0%, #6d5440 100%);
+  background: linear-gradient(180deg, #ffd700 0%, #e6c200 100%);
   border-radius: 5px;
-  border: 2px solid #f5f0e8;
+  border: 2px solid #0a1929;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #8b6b4d 0%, #5a4535 100%);
+  background: linear-gradient(180deg, #ffed4e 0%, #ffd700 100%);
 }
 
 /* Smooth transitions */
