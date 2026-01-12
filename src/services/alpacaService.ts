@@ -115,14 +115,14 @@ class AlpacaService {
   /**
    * Get historical bars for a symbol
    * @param symbol Stock symbol
-   * @param timeframe Bar timeframe (1Min, 5Min, 15Min, 1Hour, 1Day)
+   * @param timeframe Bar timeframe (1Min, 5Min, 15Min, 1Hour, 1Day, 1Week)
    * @param limit Maximum number of bars (Alpaca max is typically 10000)
    * @param start Optional start date (ISO format)
    * @param end Optional end date (ISO format)
    */
   async getBars(
     symbol: string, 
-    timeframe: string = '1Day', 
+    timeframe: string = '1Week', 
     limit: number = 30,
     start?: string,
     end?: string
@@ -190,12 +190,12 @@ class AlpacaService {
 
   /**
    * Get comprehensive market data for a symbol
-   * Fetches quote, daily bar, and extended historical data for analysis
+   * Fetches quote, weekly bar, and extended historical data for analysis
    */
   async getMarketData(symbol: string): Promise<MarketData> {
     try {
       // Calculate date range for better data retrieval
-      // Request 1 year of data (252 trading days) for proper CANSLIM/Weinstein analysis
+      // Request 1 year of data (~52 weeks) for proper CANSLIM/Weinstein analysis
       const endDate = new Date();
       const startDate = new Date();
       startDate.setFullYear(startDate.getFullYear() - 1);
@@ -205,21 +205,21 @@ class AlpacaService {
       
       // Strategy: Try date range first, then fall back to limit-based
       try {
-        // Request 1 year of daily bars (252 trading days)
+        // Request 1 year of weekly bars (~52 weeks)
         historicalBars = await this.getBars(
           symbol, 
-          '1Day', 
-          252,
+          '1Week', 
+          52,
           startDate.toISOString().split('T')[0],
           endDate.toISOString().split('T')[0]
         );
         
         if (historicalBars.length === 0) {
           // Fall back to limit-based approach
-          const limitsToTry = [252, 100, 50, 30];
+          const limitsToTry = [52, 30, 20, 10];
           for (const limit of limitsToTry) {
             try {
-              historicalBars = await this.getBars(symbol, '1Day', limit);
+              historicalBars = await this.getBars(symbol, '1Week', limit);
               if (historicalBars.length > 0) {
                 console.log(`Fetched ${historicalBars.length} bars using limit ${limit}`);
                 break;
@@ -235,10 +235,10 @@ class AlpacaService {
       } catch (err) {
         console.warn('Date range fetch failed, trying limit-based approach...', err);
         // Fall back to limit-based
-        const limitsToTry = [252, 100, 50, 30];
+        const limitsToTry = [52, 30, 20, 10];
         for (const limit of limitsToTry) {
           try {
-            historicalBars = await this.getBars(symbol, '1Day', limit);
+            historicalBars = await this.getBars(symbol, '1Week', limit);
             if (historicalBars.length > 0) {
               console.log(`Fetched ${historicalBars.length} bars using limit ${limit}`);
               break;
@@ -250,36 +250,37 @@ class AlpacaService {
         }
       }
 
-      // Fetch current quote and today's bar
-      const [quote, dailyBars] = await Promise.all([
+      // Fetch current quote and latest weekly bar
+      const [quote, weeklyBars] = await Promise.all([
         this.getQuote(symbol).catch((err) => {
           console.warn(`Quote fetch failed for ${symbol}:`, err);
           return null;
         }),
-        this.getBars(symbol, '1Day', 1).catch((err) => {
-          console.warn(`Daily bars fetch failed for ${symbol}:`, err);
+        this.getBars(symbol, '1Week', 1).catch((err) => {
+          console.warn(`Weekly bars fetch failed for ${symbol}:`, err);
           return null;
         }),
       ]);
 
-      // Combine daily bar with historical bars if we have both
+      // Combine weekly bar with historical bars if we have both
       let allHistoricalBars = historicalBars || [];
-      if (dailyBars && dailyBars.length > 0) {
+      if (weeklyBars && weeklyBars.length > 0) {
         if (historicalBars && historicalBars.length > 0) {
-          // Check if daily bar is already in historical bars
-          const dailyBarDate = dailyBars[0].t;
-          const hasDailyBar = historicalBars.some(bar => bar.t === dailyBarDate);
-          if (!hasDailyBar) {
-            allHistoricalBars = [dailyBars[0], ...historicalBars];
+          // Check if weekly bar is already in historical bars
+          const weeklyBarDate = weeklyBars[0].t;
+          const hasWeeklyBar = historicalBars.some(bar => bar.t === weeklyBarDate);
+          if (!hasWeeklyBar) {
+            allHistoricalBars = [weeklyBars[0], ...historicalBars];
           }
         } else {
-          // If we only have daily bar, use it as historical data
-          allHistoricalBars = dailyBars;
+          // If we only have weekly bar, use it as historical data
+          allHistoricalBars = weeklyBars;
         }
       }
 
-      // Determine dailyBar (use the most recent bar if available)
-      const finalDailyBar = dailyBars?.[0] || (allHistoricalBars.length > 0 ? allHistoricalBars[allHistoricalBars.length - 1] : undefined);
+      // Determine dailyBar (use the most recent weekly bar if available)
+      // Note: Keeping variable name as dailyBar for backward compatibility, but it contains weekly data
+      const finalDailyBar = weeklyBars?.[0] || (allHistoricalBars.length > 0 ? allHistoricalBars[allHistoricalBars.length - 1] : undefined);
 
       console.log(`Market data summary for ${symbol}:`, {
         hasQuote: !!quote,
@@ -298,7 +299,7 @@ class AlpacaService {
           t: finalDailyBar.t,
         } : null,
         historicalBarsCount: allHistoricalBars.length,
-        dailyBarsCount: dailyBars?.length || 0,
+        weeklyBarsCount: weeklyBars?.length || 0,
         validBarsCount: allHistoricalBars.filter((b: Bar) => b.c > 0).length,
         sampleBar: allHistoricalBars[0] ? {
           o: allHistoricalBars[0].o,
@@ -362,7 +363,7 @@ class AlpacaService {
         // Fetch quotes and bars in parallel for the batch
         const [quotes, bars] = await Promise.all([
           Promise.allSettled(batch.map(symbol => this.getQuote(symbol))),
-          this.getBatchBars(batch, '1Day', 30).catch(() => new Map()),
+          this.getBatchBars(batch, '1Week', 30).catch(() => new Map()),
         ]);
         
         // Process results
@@ -393,7 +394,7 @@ class AlpacaService {
   /**
    * Get bars for multiple symbols at once (more efficient than individual calls)
    */
-  async getBatchBars(symbols: string[], timeframe: string = '1Day', limit: number = 30): Promise<Map<string, Bar[]>> {
+  async getBatchBars(symbols: string[], timeframe: string = '1Week', limit: number = 30): Promise<Map<string, Bar[]>> {
     try {
       const response = await this.client.get('/stocks/bars', {
         params: {

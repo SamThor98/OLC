@@ -67,7 +67,13 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
     console.log(`CANSLIM: Analyzing with ${allBars.length} bar(s)`);
     
     try {
-      return CANSLIMService.calculateScore(currentPrice, allBars, currentVolume);
+      // Pass fundamental data if available
+      const fundamentals = data.fundamentals ? {
+        earnings: data.fundamentals.earnings,
+        overview: data.fundamentals.overview,
+      } : undefined;
+      
+      return CANSLIMService.calculateScore(currentPrice, allBars, currentVolume, fundamentals);
     } catch (error) {
       console.error('CANSLIM calculation error:', error);
       return null;
@@ -306,7 +312,7 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
             <div className="bg-white/40 rounded-lg p-4 border border-bison-200">
               <p className="text-sm text-bison-600 font-medium mb-2">Insufficient data for CANSLIM analysis</p>
               <p className="text-xs text-bison-500">
-                {!dailyBar ? 'Missing daily price data. ' : ''}
+                {!dailyBar ? 'Missing weekly price data. ' : ''}
                 {!historicalBars ? 'Missing historical data. ' : historicalBars.length === 0 ? 'No historical bars received. ' : `Only ${historicalBars.length} day(s) available (need at least 5 for basic analysis). `}
                 Please ensure your Alpaca API credentials are configured and try again.
               </p>
@@ -374,7 +380,7 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
             <div className="bg-white/40 rounded-lg p-4 border border-bison-200">
               <p className="text-sm text-bison-600 font-medium mb-2">Insufficient data for Weinstein analysis</p>
               <p className="text-xs text-bison-500">
-                {!dailyBar ? 'Missing daily price data. ' : ''}
+                {!dailyBar ? 'Missing weekly price data. ' : ''}
                 {!historicalBars ? 'Missing historical data. ' : historicalBars.length < 20 ? `Only ${historicalBars.length} day(s) available (need at least 20 for basic analysis, 150+ for full accuracy). ` : ''}
                 Weinstein Stage Analysis works best with 30+ weeks of historical data.
               </p>
@@ -422,7 +428,7 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
 
         {dailyBar && (
           <div className="bg-bison-50 rounded-xl p-6 border-2 border-bison-200 shadow-bison">
-            <h4 className="text-xl font-bold text-bison-800 mb-4 pb-2 border-b-2 border-bison-200">Daily Statistics</h4>
+            <h4 className="text-xl font-bold text-bison-800 mb-4 pb-2 border-b-2 border-bison-200">Weekly Statistics</h4>
             <div className="space-y-3">
               <div className="flex justify-between py-3 border-b border-bison-200">
                 <span className="text-bison-700 font-medium">Open</span>
