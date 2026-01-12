@@ -34,6 +34,14 @@ jobs:
       - name: Build
         run: npm run build
       
+      - name: Verify build output
+        run: |
+          echo "Checking dist directory..."
+          ls -la dist/ || exit 1
+          echo "Checking for index.html..."
+          test -f dist/index.html || exit 1
+          echo "Build verification complete!"
+      
       - name: Setup Pages
         uses: actions/configure-pages@v4
       
