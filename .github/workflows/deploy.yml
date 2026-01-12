@@ -36,11 +36,22 @@ jobs:
       
       - name: Verify build output
         run: |
+          echo "=== Build Output Verification ===" 
           echo "Checking dist directory..."
           ls -la dist/ || exit 1
+          echo ""
           echo "Checking for index.html..."
           test -f dist/index.html || exit 1
-          echo "Build verification complete!"
+          echo "✓ index.html found"
+          echo ""
+          echo "Checking for 404.html..."
+          test -f dist/404.html && echo "✓ 404.html found" || echo "⚠ 404.html not found (may be okay)"
+          echo ""
+          echo "Listing dist contents:"
+          ls -la dist/ | head -20
+          echo ""
+          echo "Checking index.html content:"
+          head -30 dist/index.html
       
       - name: Setup Pages
         uses: actions/configure-pages@v4
