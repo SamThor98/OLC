@@ -319,7 +319,12 @@ class AlpacaService {
           console.log(`Fetching fundamental data for ${symbol} from Alpha Vantage...`);
           const fundamentalData = await alphaVantageService.getFundamentals(symbol);
           if (fundamentalData.earnings || fundamentalData.overview || fundamentalData.incomeStatement) {
-            fundamentals = fundamentalData;
+            // Convert null to undefined to match the optional property type
+            fundamentals = {
+              earnings: fundamentalData.earnings ?? undefined,
+              overview: fundamentalData.overview ?? undefined,
+              incomeStatement: fundamentalData.incomeStatement ?? undefined,
+            };
             console.log(`Successfully fetched fundamental data for ${symbol}`);
           }
         }
