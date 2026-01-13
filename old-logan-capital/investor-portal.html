@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Investor Portal — Old Logan Capital</title>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="./logo.png">
+    <link rel="apple-touch-icon" href="./logo.png">
+
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700;9..144,900&family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --cream: #F5F1E8;
+            --cream-dark: #EBE5D6;
+            --dark: #1a1a1a;
+            --dark-alt: #2a2a2a;
+            --forest: #1A3A2E;
+            --forest-light: #2D5A4A;
+            --gold: #C9A962;
+            --text: #1a1a1a;
+            --text-muted: #5a5a5a;
+            --border: rgba(26, 26, 26, 0.1);
+            --border-light: rgba(26, 26, 26, 0.05);
+            --success: #1A3A2E;
+            --warning: #C9A962;
+            --danger: #cc3333;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: var(--cream);
+            color: var(--text);
+            line-height: 1.7;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        body::after {
+            content: '';
+            position: fixed;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 1100px;
+            height: 1100px;
+            background-image: url('./logo.png');
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            opacity: 0.03;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        ::selection {
+            background: var(--dark);
+            color: var(--cream);
+        }
+
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            padding: 2rem 5%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(245, 241, 232, 0.98);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border-light);
+            z-index: 1000;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            text-decoration: none;
+            gap: 0.75rem;
+        }
+
+        .logo-text {
+            font-family: 'Fraunces', serif;
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: var(--dark);
+            letter-spacing: -0.5px;
+            line-height: 1;
+        }
+
+        .logo-icon {
+            height: 42px;
+            width: auto;
+            opacity: 0.9;
+        }
+
+        .nav-link {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: color 0.2s ease;
+        }
+
+        .nav-link:hover {
+            color: var(--dark);
+        }
+
+        /* Hero Section */
+        .portal-hero {
+            padding: 12rem 5% 6rem;
+            max-width: 1600px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 1;
+            text-align: center;
+        }
+
+        .portal-hero h1 {
+            font-family: 'Fraunces', serif;
+            font-size: 4rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            color: var(--dark);
+            letter-spacing: -2px;
+        }
+
+        .portal-hero p {
+            font-size: 1.2rem;
+            color: var(--text-muted);
+            max-width: 700px;
+            margin: 0 auto 3rem;
+        }
+
+        /* Screener Section */
+        .screener-section {
+            padding: 4rem 5%;
+            max-width: 1400px;
+            margin: 0 auto;
+            position: relative;
+            z-index: 1;
+        }
+
+        .section-title {
+            font-family: 'Fraunces', serif;
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            color: var(--dark);
+            letter-spacing: -1.5px;
+        }
+
+        .section-subtitle {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--text-muted);
+            margin-bottom: 3rem;
+        }
+
+        /* Input Form */
+        .screener-form {
+            background: rgba(255, 255, 255, 0.7);
+            border: 1px solid var(--border);
+            padding: 3rem;
+            margin-bottom: 3rem;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 1rem;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        .symbol-input {
+            flex: 1;
+            padding: 1rem 1.5rem;
+            font-size: 1rem;
+            font-family: 'IBM Plex Mono', monospace;
+            border: 1px solid var(--border);
+            background: var(--cream);
+            color: var(--text);
+            text-transform: uppercase;
+        }
+
+        .symbol-input:focus {
+            outline: none;
+            border-color: var(--dark);
+        }
+
+        .submit-btn {
+            padding: 1rem 2.5rem;
+            background: var(--dark);
+            color: var(--cream);
+            border: none;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: 'DM Sans', sans-serif;
+            clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+        }
+
+        .submit-btn:hover:not(:disabled) {
+            background: var(--text-muted);
+        }
+
+        .submit-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Loading State */
+        .loading {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-muted);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.9rem;
+        }
+
+        /* Results Section */
+        .results-container {
+            display: none;
+        }
+
+        .results-container.active {
+            display: block;
+        }
+
+        .results-tabs {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            border-bottom: 2px solid var(--border);
+        }
+
+        .tab-btn {
+            padding: 1rem 2rem;
+            background: none;
+            border: none;
+            border-bottom: 3px solid transparent;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: -2px;
+        }
+
+        .tab-btn.active {
+            color: var(--dark);
+            border-bottom-color: var(--dark);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Results Table */
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(255, 255, 255, 0.7);
+            border: 1px solid var(--border);
+            margin-bottom: 2rem;
+        }
+
+        .results-table th {
+            background: var(--dark);
+            color: var(--cream);
+            padding: 1.25rem 1.5rem;
+            text-align: left;
+            font-family: 'DM Sans', sans-serif;
+            font-weight: 600;
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .results-table td {
+            padding: 1.5rem;
+            border-bottom: 1px solid var(--border-light);
+            font-size: 0.95rem;
+        }
+
+        .results-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .results-table tr:hover {
+            background: rgba(255, 255, 255, 0.9);
+        }
+
+        .criterion-label {
+            font-weight: 600;
+            font-family: 'Fraunces', serif;
+            color: var(--dark);
+            min-width: 200px;
+        }
+
+        .criterion-value {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text);
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 0.4rem 1rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+
+        .status-pass {
+            background: var(--success);
+            color: var(--cream);
+        }
+
+        .status-fail {
+            background: var(--danger);
+            color: var(--cream);
+        }
+
+        .status-warning {
+            background: var(--warning);
+            color: var(--dark);
+        }
+
+        .stage-badge {
+            display: inline-block;
+            padding: 0.5rem 1.25rem;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-family: 'DM Sans', sans-serif;
+        }
+
+        .stage-1 {
+            background: rgba(26, 58, 46, 0.1);
+            color: var(--forest);
+            border: 1px solid var(--forest);
+        }
+
+        .stage-2 {
+            background: rgba(26, 58, 46, 0.2);
+            color: var(--forest);
+            border: 2px solid var(--forest);
+        }
+
+        .stage-3 {
+            background: rgba(201, 169, 98, 0.2);
+            color: #8B6914;
+            border: 1px solid var(--gold);
+        }
+
+        .stage-4 {
+            background: rgba(204, 51, 51, 0.1);
+            color: var(--danger);
+            border: 1px solid var(--danger);
+        }
+
+        .stock-info {
+            background: rgba(255, 255, 255, 0.7);
+            border: 1px solid var(--border);
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .stock-info h3 {
+            font-family: 'Fraunces', serif;
+            font-size: 2rem;
+            margin-bottom: 1rem;
+            color: var(--dark);
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-top: 1.5rem;
+        }
+
+        .info-item {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 0.85rem;
+        }
+
+        .info-label {
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 0.5rem;
+            font-size: 0.75rem;
+        }
+
+        .info-value {
+            color: var(--dark);
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .error-message {
+            background: rgba(204, 51, 51, 0.1);
+            border: 1px solid var(--danger);
+            color: var(--danger);
+            padding: 1.5rem;
+            margin: 2rem 0;
+            border-radius: 4px;
+            text-align: center;
+        }
+
+        @media (max-width: 768px) {
+            .portal-hero h1 {
+                font-size: 2.5rem;
+            }
+
+            .input-group {
+                flex-direction: column;
+            }
+
+            .results-table {
+                font-size: 0.85rem;
+            }
+
+            .results-table th,
+            .results-table td {
+                padding: 1rem 0.75rem;
+            }
+
+            .results-tabs {
+                overflow-x: auto;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="index.html" class="logo">
+            <img src="./logo.png" alt="Old Logan Capital" class="logo-icon">
+            <span class="logo-text">Old Logan Capital</span>
+        </a>
+        <a href="index.html" class="nav-link">← Back to Home</a>
+    </nav>
+
+    <section class="portal-hero">
+        <h1>Investor Portal</h1>
+        <p>Weinstein Stage Analysis & CANSLIM Stock Screening</p>
+    </section>
+
+    <section class="screener-section">
+        <h2 class="section-title">Stock Screener</h2>
+        <p class="section-subtitle">Analyze stocks using Weinstein Stages and CANSLIM criteria</p>
+
+        <div class="screener-form">
+            <div class="input-group">
+                <input 
+                    type="text" 
+                    id="symbolInput" 
+                    class="symbol-input" 
+                    placeholder="Enter stock symbol (e.g., AAPL)"
+                    maxlength="10"
+                >
+                <button id="submitBtn" class="submit-btn">Analyze</button>
+            </div>
+        </div>
+
+        <div id="loading" class="loading" style="display: none;">
+            Fetching data from Yahoo Finance...
+        </div>
+
+        <div id="errorMessage" class="error-message" style="display: none;"></div>
+
+        <div id="resultsContainer" class="results-container">
+            <div id="stockInfo" class="stock-info"></div>
+
+            <div class="results-tabs">
+                <button class="tab-btn active" data-tab="weinstein">Weinstein Stages</button>
+                <button class="tab-btn" data-tab="canslim">CANSLIM Analysis</button>
+            </div>
+
+            <div id="weinsteinTab" class="tab-content active">
+                <table class="results-table">
+                    <thead>
+                        <tr>
+                            <th>Stage</th>
+                            <th>Criteria</th>
+                            <th>Status</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="weinsteinResults"></tbody>
+                </table>
+            </div>
+
+            <div id="canslimTab" class="tab-content">
+                <table class="results-table">
+                    <thead>
+                        <tr>
+                            <th>Criterion</th>
+                            <th>Description</th>
+                            <th>Value</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="canslimResults"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        // Tab switching
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tabName = btn.dataset.tab;
+                
+                // Update buttons
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                
+                // Update content
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                document.getElementById(`${tabName}Tab`).classList.add('active');
+            });
+        });
+
+        // Form submission
+        const symbolInput = document.getElementById('symbolInput');
+        const submitBtn = document.getElementById('submitBtn');
+        const loading = document.getElementById('loading');
+        const errorMessage = document.getElementById('errorMessage');
+        const resultsContainer = document.getElementById('resultsContainer');
+
+        submitBtn.addEventListener('click', async () => {
+            const symbol = symbolInput.value.trim().toUpperCase();
+            if (!symbol) {
+                showError('Please enter a stock symbol');
+                return;
+            }
+
+            await analyzeStock(symbol);
+        });
+
+        symbolInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                submitBtn.click();
+            }
+        });
+
+        async function analyzeStock(symbol) {
+            // Show loading, hide results and error
+            loading.style.display = 'block';
+            resultsContainer.classList.remove('active');
+            errorMessage.style.display = 'none';
+            submitBtn.disabled = true;
+
+            try {
+                // Fetch data from Yahoo Finance
+                const data = await fetchStockData(symbol);
+                
+                // Display results
+                displayStockInfo(symbol, data);
+                displayWeinsteinResults(data);
+                displayCANSLIMResults(data);
+                
+                resultsContainer.classList.add('active');
+                loading.style.display = 'none';
+            } catch (error) {
+                console.error('Error:', error);
+                showError(`Error analyzing ${symbol}: ${error.message}. Please check the symbol and try again.`);
+                loading.style.display = 'none';
+            } finally {
+                submitBtn.disabled = false;
+            }
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+            resultsContainer.classList.remove('active');
+        }
+
+        async function fetchStockData(symbol) {
+            // Yahoo Finance API endpoints
+            // Note: Some endpoints may be blocked by CORS. If this fails, a backend proxy is needed.
+            const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1wk&range=5y&includePrePost=false`;
+            const quoteUrl = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=summaryProfile,financialData,defaultKeyStatistics,majorHoldersBreakdown`;
+            
+            try {
+                // Fetch chart data (weekly historical data)
+                const chartResponse = await fetch(chartUrl);
+                if (!chartResponse.ok) {
+                    throw new Error(`Failed to fetch chart data: ${chartResponse.status} ${chartResponse.statusText}`);
+                }
+                const chartData = await chartResponse.json();
+                
+                if (!chartData.chart || !chartData.chart.result || chartData.chart.result.length === 0) {
+                    throw new Error('Invalid symbol or no data available');
+                }
+                
+                // Fetch quote/financial data
+                let quoteData = null;
+                try {
+                    const quoteResponse = await fetch(quoteUrl);
+                    if (quoteResponse.ok) {
+                        quoteData = await quoteResponse.json();
+                    }
+                } catch (quoteError) {
+                    console.warn('Quote data fetch failed, continuing with chart data only:', quoteError);
+                    // Continue with just chart data if quote fails
+                }
+
+                return {
+                    symbol,
+                    chartData,
+                    quoteData
+                };
+            } catch (error) {
+                // Handle CORS or network errors
+                if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
+                    throw new Error('Unable to fetch data. This may be due to CORS restrictions. A backend proxy server is required for production use.');
+                }
+                if (error.message.includes('Invalid symbol')) {
+                    throw new Error(`Invalid stock symbol: ${symbol}. Please check the symbol and try again.`);
+                }
+                throw error;
+            }
+        }
+
+        function processStockData(data) {
+            const { chartData, quoteData } = data;
+            const result = chartData.chart.result[0];
+            
+            // Extract price data
+            const timestamps = result.timestamp || [];
+            const quoteData_arr = result.indicators.quote[0];
+            const closes = quoteData_arr.close || [];
+            const volumes = quoteData_arr.volume || [];
+            const highs = quoteData_arr.high || [];
+            const lows = quoteData_arr.low || [];
+            
+            // Filter out null values
+            const validCloses = closes.filter(p => p !== null && p !== undefined);
+            const validVolumes = volumes.filter(v => v !== null && v !== undefined);
+            const validHighs = highs.filter(h => h !== null && h !== undefined);
+            const validLows = lows.filter(l => l !== null && l !== undefined);
+            
+            // Calculate 30-week SMA
+            const sma30Weeks = calculateSMA(validCloses, 30);
+            const currentPrice = validCloses[validCloses.length - 1];
+            const sma30Current = sma30Weeks[sma30Weeks.length - 1];
+            const sma30Prev = sma30Weeks[sma30Weeks.length - 2] || sma30Current;
+            
+            // Extract quote data (if available)
+            let financialData = {};
+            let keyStats = {};
+            let profile = {};
+            
+            if (quoteData && quoteData.quoteSummary && quoteData.quoteSummary.result && quoteData.quoteSummary.result[0]) {
+                const quote = quoteData.quoteSummary.result[0];
+                financialData = quote.financialData || {};
+                keyStats = quote.defaultKeyStatistics || {};
+                profile = quote.summaryProfile || {};
+            }
+            
+            return {
+                symbol: data.symbol,
+                prices: validCloses,
+                volumes: validVolumes,
+                highs: validHighs,
+                lows: validLows,
+                timestamps,
+                sma30Weeks,
+                currentPrice,
+                sma30Current,
+                sma30Prev,
+                financialData,
+                keyStats,
+                profile
+            };
+        }
+
+        function calculateSMA(values, period) {
+            const sma = [];
+            for (let i = 0; i < values.length; i++) {
+                if (i < period - 1) {
+                    sma.push(null);
+                } else {
+                    const sum = values.slice(i - period + 1, i + 1).reduce((a, b) => (a || 0) + (b || 0), 0);
+                    sma.push(sum / period);
+                }
+            }
+            return sma;
+        }
+
+        function displayStockInfo(symbol, rawData) {
+            const data = processStockData(rawData);
+            const stockInfoDiv = document.getElementById('stockInfo');
+            
+            stockInfoDiv.innerHTML = `
+                <h3>${data.symbol} - ${data.profile.longName || symbol}</h3>
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">Current Price</div>
+                        <div class="info-value">$${data.currentPrice?.toFixed(2) || 'N/A'}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">30-Week SMA</div>
+                        <div class="info-value">$${data.sma30Current?.toFixed(2) || 'N/A'}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Sector</div>
+                        <div class="info-value">${data.profile.sector || 'N/A'}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Industry</div>
+                        <div class="info-value">${data.profile.industry || 'N/A'}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function displayWeinsteinResults(rawData) {
+            const data = processStockData(rawData);
+            const tbody = document.getElementById('weinsteinResults');
+            
+            // Determine Weinstein Stage
+            const stage = determineWeinsteinStage(data);
+            const stageAnalysis = getWeinsteinAnalysis(data, stage);
+            
+            tbody.innerHTML = `
+                <tr>
+                    <td><span class="stage-badge stage-${stage}">Stage ${stage}</span></td>
+                    <td class="criterion-label">Current Stage</td>
+                    <td><span class="status-badge ${stageAnalysis.overallStatus}">${stageAnalysis.overallStatus.toUpperCase()}</span></td>
+                    <td class="criterion-value">${stageAnalysis.description}</td>
+                </tr>
+                ${stageAnalysis.criteria.map(criterion => `
+                    <tr>
+                        <td></td>
+                        <td class="criterion-label">${criterion.name}</td>
+                        <td><span class="status-badge ${criterion.status}">${criterion.status.toUpperCase()}</span></td>
+                        <td class="criterion-value">${criterion.details}</td>
+                    </tr>
+                `).join('')}
+            `;
+        }
+
+        function determineWeinsteinStage(data) {
+            if (!data.sma30Current || !data.sma30Prev || !data.currentPrice) return 1;
+            
+            const smaSlope = data.sma30Current - data.sma30Prev;
+            const priceVsSMA = data.currentPrice - data.sma30Current;
+            const smaChangePercent = (smaSlope / data.sma30Prev) * 100;
+            
+            // Stage 2: Advancing - SMA rising, price above SMA
+            if (smaSlope > 0 && priceVsSMA > 0 && Math.abs(smaChangePercent) > 0.1) {
+                return 2;
+            }
+            
+            // Stage 4: Declining - SMA falling, price below SMA
+            if (smaSlope < 0 && priceVsSMA < 0) {
+                return 4;
+            }
+            
+            // Stage 3: Distribution - SMA flattening after uptrend, price near SMA
+            if (Math.abs(smaSlope) < data.sma30Current * 0.001 && priceVsSMA < data.sma30Current * 0.05) {
+                const recentTrend = checkRecentTrend(data);
+                if (recentTrend === 'up') return 3;
+            }
+            
+            // Stage 1: Accumulation - Default/base stage
+            return 1;
+        }
+
+        function checkRecentTrend(data) {
+            if (data.prices.length < 10) return 'neutral';
+            const recent = data.prices.slice(-10).filter(p => p);
+            const earlier = recent.slice(0, 5);
+            const later = recent.slice(5);
+            const avgEarlier = earlier.reduce((a, b) => a + b, 0) / earlier.length;
+            const avgLater = later.reduce((a, b) => a + b, 0) / later.length;
+            if (avgLater > avgEarlier * 1.02) return 'up';
+            if (avgLater < avgEarlier * 0.98) return 'down';
+            return 'neutral';
+        }
+
+        function getWeinsteinAnalysis(data, stage) {
+            const analyses = {
+                1: {
+                    description: 'Accumulation: Stock is forming a base after a downtrend. Look for increased volume on lows.',
+                    overallStatus: 'warning',
+                    criteria: [
+                        {
+                            name: '30-Week SMA',
+                            status: data.sma30Current && data.currentPrice ? (Math.abs(data.currentPrice - data.sma30Current) / data.sma30Current < 0.1 ? 'pass' : 'warning') : 'fail',
+                            details: `Price: $${data.currentPrice?.toFixed(2)} | SMA: $${data.sma30Current?.toFixed(2)}`
+                        },
+                        {
+                            name: 'Price Action',
+                            status: 'warning',
+                            details: 'Sideways trading pattern forming'
+                        },
+                        {
+                            name: 'Volume Pattern',
+                            status: 'warning',
+                            details: 'Analyze volume on price lows'
+                        }
+                    ]
+                },
+                2: {
+                    description: 'Advancing: Strong uptrend with rising SMA. Momentum is positive.',
+                    overallStatus: 'pass',
+                    criteria: [
+                        {
+                            name: '30-Week SMA',
+                            status: 'pass',
+                            details: `SMA is rising: $${data.sma30Prev?.toFixed(2)} → $${data.sma30Current?.toFixed(2)}`
+                        },
+                        {
+                            name: 'Price vs SMA',
+                            status: 'pass',
+                            details: `Price ($${data.currentPrice?.toFixed(2)}) is above SMA ($${data.sma30Current?.toFixed(2)})`
+                        },
+                        {
+                            name: 'Trend Strength',
+                            status: 'pass',
+                            details: 'Uptrend confirmed'
+                        }
+                    ]
+                },
+                3: {
+                    description: 'Distribution: Uptrend is ending, SMA flattening. Be cautious.',
+                    overallStatus: 'warning',
+                    criteria: [
+                        {
+                            name: '30-Week SMA',
+                            status: 'warning',
+                            details: `SMA is flattening: $${data.sma30Current?.toFixed(2)}`
+                        },
+                        {
+                            name: 'Price Action',
+                            status: 'warning',
+                            details: 'Sideways action after uptrend'
+                        },
+                        {
+                            name: 'Volume Pattern',
+                            status: 'warning',
+                            details: 'Watch for increased selling volume'
+                        }
+                    ]
+                },
+                4: {
+                    description: 'Declining: Clear downtrend. Avoid or consider shorting.',
+                    overallStatus: 'fail',
+                    criteria: [
+                        {
+                            name: '30-Week SMA',
+                            status: 'fail',
+                            details: `SMA is declining: $${data.sma30Prev?.toFixed(2)} → $${data.sma30Current?.toFixed(2)}`
+                        },
+                        {
+                            name: 'Price vs SMA',
+                            status: 'fail',
+                            details: `Price ($${data.currentPrice?.toFixed(2)}) is below SMA ($${data.sma30Current?.toFixed(2)})`
+                        },
+                        {
+                            name: 'Trend Direction',
+                            status: 'fail',
+                            details: 'Downtrend - avoid'
+                        }
+                    ]
+                }
+            };
+            
+            return analyses[stage] || analyses[1];
+        }
+
+        function displayCANSLIMResults(rawData) {
+            const data = processStockData(rawData);
+            const tbody = document.getElementById('canslimResults');
+            
+            const canslimAnalysis = analyzeCANSLIM(data);
+            
+            tbody.innerHTML = canslimAnalysis.map(item => `
+                <tr>
+                    <td class="criterion-label">${item.letter}</td>
+                    <td>${item.description}</td>
+                    <td class="criterion-value">${item.value}</td>
+                    <td><span class="status-badge ${item.status}">${item.status.toUpperCase()}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        function analyzeCANSLIM(data) {
+            const analysis = [];
+            
+            // C - Current Earnings Growth
+            const currentEarningsGrowth = data.financialData?.earningsGrowth?.raw * 100 || 0;
+            analysis.push({
+                letter: 'C',
+                description: 'Current Quarterly Earnings Growth (>25% YoY)',
+                value: currentEarningsGrowth ? `${currentEarningsGrowth.toFixed(1)}%` : 'N/A',
+                status: currentEarningsGrowth > 25 ? 'pass' : currentEarningsGrowth > 0 ? 'warning' : 'fail'
+            });
+            
+            // A - Annual Earnings Growth
+            const annualEarningsGrowth = data.keyStats?.earningsQuarterlyGrowth?.raw * 100 || 0;
+            analysis.push({
+                letter: 'A',
+                description: 'Annual Earnings Growth (>25% over 3-5 years)',
+                value: annualEarningsGrowth ? `${annualEarningsGrowth.toFixed(1)}%` : 'N/A',
+                status: annualEarningsGrowth > 25 ? 'pass' : annualEarningsGrowth > 0 ? 'warning' : 'fail'
+            });
+            
+            // N - New Highs
+            const recentHigh = Math.max(...(data.highs.slice(-52).filter(h => h) || [data.currentPrice]));
+            const isNearHigh = data.currentPrice && recentHigh && (data.currentPrice / recentHigh) > 0.95;
+            analysis.push({
+                letter: 'N',
+                description: 'New Products, Management, or Price Highs',
+                value: isNearHigh ? 'Near 52-week high' : 'Below high',
+                status: isNearHigh ? 'pass' : 'warning'
+            });
+            
+            // S - Supply and Demand (Float, Volume)
+            const sharesOutstanding = data.keyStats?.sharesOutstanding?.raw || 0;
+            const floatShares = data.keyStats?.floatShares?.raw || sharesOutstanding;
+            const avgVolume = data.volumes.slice(-20).filter(v => v).reduce((a, b) => a + b, 0) / 20;
+            const isLowFloat = floatShares < 50_000_000; // Less than 50M shares
+            analysis.push({
+                letter: 'S',
+                description: 'Supply and Demand (Low float, High volume)',
+                value: `Float: ${(floatShares / 1_000_000).toFixed(1)}M | Avg Vol: ${(avgVolume / 1_000_000).toFixed(1)}M`,
+                status: isLowFloat && avgVolume > 1_000_000 ? 'pass' : 'warning'
+            });
+            
+            // L - Leader (Relative Strength)
+            const priceChange52W = data.prices.length > 52 ? 
+                ((data.currentPrice - data.prices[data.prices.length - 52]) / data.prices[data.prices.length - 52]) * 100 : 0;
+            analysis.push({
+                letter: 'L',
+                description: 'Leader or Laggard (Relative Price Strength)',
+                value: priceChange52W ? `${priceChange52W > 0 ? '+' : ''}${priceChange52W.toFixed(1)}% (52W)` : 'N/A',
+                status: priceChange52W > 25 ? 'pass' : priceChange52W > 0 ? 'warning' : 'fail'
+            });
+            
+            // I - Institutional Sponsorship
+            const institutionalOwnership = data.keyStats?.heldPercentInstitutions?.raw * 100 || 0;
+            analysis.push({
+                letter: 'I',
+                description: 'Institutional Sponsorship',
+                value: institutionalOwnership ? `${institutionalOwnership.toFixed(1)}%` : 'N/A',
+                status: institutionalOwnership > 40 ? 'pass' : institutionalOwnership > 20 ? 'warning' : 'fail'
+            });
+            
+            // M - Market Direction
+            // This would typically compare to SPY or market index
+            // For now, using a placeholder
+            analysis.push({
+                letter: 'M',
+                description: 'Market Direction (Overall Market Trend)',
+                value: 'Check market indexes (SPY, QQQ)',
+                status: 'warning'
+            });
+            
+            return analysis;
+        }
+    </script>
+</body>
+</html>
