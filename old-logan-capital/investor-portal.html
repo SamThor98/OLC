@@ -607,44 +607,29 @@
         }
 
         async function fetchStockData(symbol) {
-            // Yahoo Finance API endpoints
-            // Note: Some endpoints may be blocked by CORS. If this fails, a backend proxy is needed.
-            const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1wk&range=5y&includePrePost=false`;
-            const quoteUrl = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=summaryProfile,financialData,defaultKeyStatistics,majorHoldersBreakdown`;
+            // Use backend proxy server to avoid CORS issues
+            const apiBaseUrl = window.location.origin; // Use same origin as the page
+            const apiUrl = `${apiBaseUrl}/api/stock/${symbol}?interval=1wk&range=5y`;
             
             try {
-                // Fetch chart data (weekly historical data)
-                const chartResponse = await fetch(chartUrl);
-                if (!chartResponse.ok) {
-                    throw new Error(`Failed to fetch chart data: ${chartResponse.status} ${chartResponse.statusText}`);
-                }
-                const chartData = await chartResponse.json();
+                const response = await fetch(apiUrl);
                 
-                if (!chartData.chart || !chartData.chart.result || chartData.chart.result.length === 0) {
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    throw new Error(errorData.message || `Failed to fetch data: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (!data.chartData || !data.chartData.chart || !data.chartData.chart.result || data.chartData.chart.result.length === 0) {
                     throw new Error('Invalid symbol or no data available');
                 }
                 
-                // Fetch quote/financial data
-                let quoteData = null;
-                try {
-                    const quoteResponse = await fetch(quoteUrl);
-                    if (quoteResponse.ok) {
-                        quoteData = await quoteResponse.json();
-                    }
-                } catch (quoteError) {
-                    console.warn('Quote data fetch failed, continuing with chart data only:', quoteError);
-                    // Continue with just chart data if quote fails
-                }
-
-                return {
-                    symbol,
-                    chartData,
-                    quoteData
-                };
+                return data;
             } catch (error) {
-                // Handle CORS or network errors
+                // Handle network errors
                 if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
-                    throw new Error('Unable to fetch data. This may be due to CORS restrictions. A backend proxy server is required for production use.');
+                    throw new Error('Unable to connect to the server. Please make sure the backend server is running on port 3001.');
                 }
                 if (error.message.includes('Invalid symbol')) {
                     throw new Error(`Invalid stock symbol: ${symbol}. Please check the symbol and try again.`);
@@ -654,7 +639,7 @@
         }
 
         function processStockData(data) {
-            const { chartData, quoteData } = data;
+            const { chartData, quoteData, spyData } = data;
             const result = chartData.chart.result[0];
             
             // Extract price data
@@ -677,20 +662,63 @@
             const sma30Current = sma30Weeks[sma30Weeks.length - 1];
             const sma30Prev = sma30Weeks[sma30Weeks.length - 2] || sma30Current;
             
+            // Extract SPY price data for market comparison
+            let spyPrices = [];
+            if (spyData && spyData.chart && spyData.chart.result && spyData.chart.result[0]) {
+                const spyCloses = spyData.chart.result[0].indicators.quote[0].close || [];
+                spyPrices = spyCloses.filter(p => p !== null && p !== undefined);
+            }
+            
             // Extract quote data (if available)
             let financialData = {};
             let keyStats = {};
             let profile = {};
+            let incomeStatementHistory = {};
+            let incomeStatementHistoryQuarterly = {};
+            let majorHoldersBreakdown = {};
+            let companyName = data.symbol; // Default to symbol
+            
+            // Get company name from chart metadata first (usually available)
+            if (result.meta && result.meta.longName) {
+                companyName = result.meta.longName;
+            } else if (result.meta && result.meta.shortName) {
+                companyName = result.meta.shortName;
+            }
             
             if (quoteData && quoteData.quoteSummary && quoteData.quoteSummary.result && quoteData.quoteSummary.result[0]) {
                 const quote = quoteData.quoteSummary.result[0];
                 financialData = quote.financialData || {};
                 keyStats = quote.defaultKeyStatistics || {};
                 profile = quote.summaryProfile || {};
+                incomeStatementHistory = quote.incomeStatementHistory || {};
+                incomeStatementHistoryQuarterly = quote.incomeStatementHistoryQuarterly || {};
+                majorHoldersBreakdown = quote.majorHoldersBreakdown || {};
+                
+                // Prefer longName from quoteSummary if available
+                if (profile && profile.longName) {
+                    companyName = profile.longName;
+                } else if (profile && profile.shortName) {
+                    companyName = profile.shortName;
+                }
+            }
+            
+            // Fallback: Try to get sector/industry from chart metadata if profile doesn't have it
+            if ((!profile || !profile.sector) && result.meta) {
+                if (!profile) profile = {};
+                if (result.meta.sector) profile.sector = result.meta.sector;
+                if (result.meta.industry) profile.industry = result.meta.industry;
+            }
+            
+            // Debug: Log profile data if available
+            if (profile && Object.keys(profile).length > 0) {
+                console.log('Profile data:', profile);
+            } else {
+                console.warn('No profile data found in quoteData');
             }
             
             return {
                 symbol: data.symbol,
+                companyName: companyName,
                 prices: validCloses,
                 volumes: validVolumes,
                 highs: validHighs,
@@ -700,9 +728,13 @@
                 currentPrice,
                 sma30Current,
                 sma30Prev,
+                spyPrices,
                 financialData,
                 keyStats,
-                profile
+                profile,
+                incomeStatementHistory,
+                incomeStatementHistoryQuarterly,
+                majorHoldersBreakdown
             };
         }
 
@@ -724,7 +756,7 @@
             const stockInfoDiv = document.getElementById('stockInfo');
             
             stockInfoDiv.innerHTML = `
-                <h3>${data.symbol} - ${data.profile.longName || symbol}</h3>
+                <h3>${data.companyName} (${data.symbol})</h3>
                 <div class="info-grid">
                     <div class="info-item">
                         <div class="info-label">Current Price</div>
@@ -736,11 +768,11 @@
                     </div>
                     <div class="info-item">
                         <div class="info-label">Sector</div>
-                        <div class="info-value">${data.profile.sector || 'N/A'}</div>
+                        <div class="info-value">${(data.profile && data.profile.sector) ? data.profile.sector : 'N/A'}</div>
                     </div>
                     <div class="info-item">
                         <div class="info-label">Industry</div>
-                        <div class="info-value">${data.profile.industry || 'N/A'}</div>
+                        <div class="info-value">${(data.profile && data.profile.industry) ? data.profile.industry : 'N/A'}</div>
                     </div>
                 </div>
             `;
@@ -921,25 +953,77 @@
         function analyzeCANSLIM(data) {
             const analysis = [];
             
-            // C - Current Earnings Growth
-            const currentEarningsGrowth = data.financialData?.earningsGrowth?.raw * 100 || 0;
+            // C - Current Quarterly Earnings Growth (Most recent quarter vs same quarter last year)
+            let currentEarningsGrowth = 0;
+            let currentEarningsValue = 'N/A';
+            const quarterlyIncome = data.incomeStatementHistoryQuarterly?.incomeStatementHistory || [];
+            
+            if (quarterlyIncome && quarterlyIncome.length >= 5) {
+                // Get most recent quarter (index 0)
+                const mostRecentQuarter = quarterlyIncome[0];
+                const mostRecentEPS = mostRecentQuarter?.netIncome?.raw / (mostRecentQuarter?.commonStockSharesOutstanding?.raw || 1);
+                
+                // Find same quarter from previous year (approximately 4 quarters back, but check dates)
+                const mostRecentDate = mostRecentQuarter?.endDate?.fmt;
+                if (mostRecentDate && mostRecentEPS) {
+                    // Find quarter from ~1 year ago (check quarters 4-6 to account for timing)
+                    for (let i = 4; i < Math.min(8, quarterlyIncome.length); i++) {
+                        const yearAgoQuarter = quarterlyIncome[i];
+                        const yearAgoDate = yearAgoQuarter?.endDate?.fmt;
+                        if (yearAgoDate) {
+                            const yearAgoEPS = yearAgoQuarter?.netIncome?.raw / (yearAgoQuarter?.commonStockSharesOutstanding?.raw || 1);
+                            if (yearAgoEPS && yearAgoEPS > 0) {
+                                currentEarningsGrowth = ((mostRecentEPS - yearAgoEPS) / Math.abs(yearAgoEPS)) * 100;
+                                currentEarningsValue = `${currentEarningsGrowth.toFixed(1)}%`;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            
             analysis.push({
                 letter: 'C',
                 description: 'Current Quarterly Earnings Growth (>25% YoY)',
-                value: currentEarningsGrowth ? `${currentEarningsGrowth.toFixed(1)}%` : 'N/A',
+                value: currentEarningsValue,
                 status: currentEarningsGrowth > 25 ? 'pass' : currentEarningsGrowth > 0 ? 'warning' : 'fail'
             });
             
-            // A - Annual Earnings Growth
-            const annualEarningsGrowth = data.keyStats?.earningsQuarterlyGrowth?.raw * 100 || 0;
+            // A - Annual Earnings Growth (3-year annualized growth)
+            let annualEarningsGrowth = 0;
+            let annualEarningsValue = 'N/A';
+            const annualIncome = data.incomeStatementHistory?.incomeStatementHistory || [];
+            
+            if (annualIncome && annualIncome.length >= 3) {
+                // Get last 3 years of annual EPS
+                const eps3Years = [];
+                for (let i = 0; i < Math.min(3, annualIncome.length); i++) {
+                    const year = annualIncome[i];
+                    const eps = year?.netIncome?.raw / (year?.commonStockSharesOutstanding?.raw || 1);
+                    if (eps && eps > 0) {
+                        eps3Years.push(eps);
+                    }
+                }
+                
+                if (eps3Years.length === 3) {
+                    // Calculate 3-year annualized growth: (EPS_year3 / EPS_year1)^(1/3) - 1
+                    const oldestEPS = eps3Years[eps3Years.length - 1];
+                    const newestEPS = eps3Years[0];
+                    if (oldestEPS > 0) {
+                        annualEarningsGrowth = (Math.pow(newestEPS / oldestEPS, 1/3) - 1) * 100;
+                        annualEarningsValue = `${annualEarningsGrowth.toFixed(1)}% (3Y annualized)`;
+                    }
+                }
+            }
+            
             analysis.push({
                 letter: 'A',
-                description: 'Annual Earnings Growth (>25% over 3-5 years)',
-                value: annualEarningsGrowth ? `${annualEarningsGrowth.toFixed(1)}%` : 'N/A',
+                description: 'Annual Earnings Growth (>25% over 3 years)',
+                value: annualEarningsValue,
                 status: annualEarningsGrowth > 25 ? 'pass' : annualEarningsGrowth > 0 ? 'warning' : 'fail'
             });
             
-            // N - New Highs
+            // N - New Highs (no change needed)
             const recentHigh = Math.max(...(data.highs.slice(-52).filter(h => h) || [data.currentPrice]));
             const isNearHigh = data.currentPrice && recentHigh && (data.currentPrice / recentHigh) > 0.95;
             analysis.push({
@@ -952,13 +1036,13 @@
             // S - Supply and Demand (Float, Volume)
             const sharesOutstanding = data.keyStats?.sharesOutstanding?.raw || 0;
             const floatShares = data.keyStats?.floatShares?.raw || sharesOutstanding;
-            const avgVolume = data.volumes.slice(-20).filter(v => v).reduce((a, b) => a + b, 0) / 20;
+            const avgVolume = data.volumes.length > 0 ? data.volumes.slice(-20).filter(v => v).reduce((a, b) => a + b, 0) / 20 : 0;
             const isLowFloat = floatShares < 50_000_000; // Less than 50M shares
             analysis.push({
                 letter: 'S',
                 description: 'Supply and Demand (Low float, High volume)',
-                value: `Float: ${(floatShares / 1_000_000).toFixed(1)}M | Avg Vol: ${(avgVolume / 1_000_000).toFixed(1)}M`,
-                status: isLowFloat && avgVolume > 1_000_000 ? 'pass' : 'warning'
+                value: floatShares > 0 ? `Float: ${(floatShares / 1_000_000).toFixed(1)}M | Avg Vol: ${(avgVolume / 1_000_000).toFixed(1)}M` : 'N/A',
+                status: (isLowFloat && avgVolume > 1_000_000) ? 'pass' : 'warning'
             });
             
             // L - Leader (Relative Strength)
@@ -972,22 +1056,51 @@
             });
             
             // I - Institutional Sponsorship
-            const institutionalOwnership = data.keyStats?.heldPercentInstitutions?.raw * 100 || 0;
+            let institutionalOwnership = 0;
+            let institutionalValue = 'N/A';
+            
+            // Try majorHoldersBreakdown first
+            if (data.majorHoldersBreakdown?.institutions?.raw) {
+                institutionalOwnership = data.majorHoldersBreakdown.institutions.raw * 100;
+                institutionalValue = `${institutionalOwnership.toFixed(1)}%`;
+            } else if (data.keyStats?.heldPercentInstitutions?.raw) {
+                institutionalOwnership = data.keyStats.heldPercentInstitutions.raw * 100;
+                institutionalValue = `${institutionalOwnership.toFixed(1)}%`;
+            }
+            
             analysis.push({
                 letter: 'I',
                 description: 'Institutional Sponsorship',
-                value: institutionalOwnership ? `${institutionalOwnership.toFixed(1)}%` : 'N/A',
+                value: institutionalValue,
                 status: institutionalOwnership > 40 ? 'pass' : institutionalOwnership > 20 ? 'warning' : 'fail'
             });
             
-            // M - Market Direction
-            // This would typically compare to SPY or market index
-            // For now, using a placeholder
+            // M - Market Direction (Compare to SPY)
+            let marketDirection = 'N/A';
+            let marketStatus = 'warning';
+            
+            if (data.spyPrices && data.spyPrices.length > 52 && data.prices.length > 52) {
+                const stock52WChange = ((data.currentPrice - data.prices[data.prices.length - 52]) / data.prices[data.prices.length - 52]) * 100;
+                const spyCurrentPrice = data.spyPrices[data.spyPrices.length - 1];
+                const spy52WChange = ((spyCurrentPrice - data.spyPrices[data.spyPrices.length - 52]) / data.spyPrices[data.spyPrices.length - 52]) * 100;
+                
+                marketDirection = `SPY: ${spy52WChange > 0 ? '+' : ''}${spy52WChange.toFixed(1)}% | Stock: ${stock52WChange > 0 ? '+' : ''}${stock52WChange.toFixed(1)}%`;
+                
+                // Market is bullish if SPY is up >5% over 52 weeks
+                if (spy52WChange > 5) {
+                    marketStatus = 'pass';
+                } else if (spy52WChange > 0) {
+                    marketStatus = 'warning';
+                } else {
+                    marketStatus = 'fail';
+                }
+            }
+            
             analysis.push({
                 letter: 'M',
-                description: 'Market Direction (Overall Market Trend)',
-                value: 'Check market indexes (SPY, QQQ)',
-                status: 'warning'
+                description: 'Market Direction (SPY 52W Performance)',
+                value: marketDirection,
+                status: marketStatus
             });
             
             return analysis;

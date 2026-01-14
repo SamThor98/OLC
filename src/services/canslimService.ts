@@ -1,5 +1,6 @@
 import { Bar } from './alpacaService';
 import { EarningsData, CompanyOverview } from './alphaVantageService';
+import { FinnhubFundamentals, FinnhubBasicFinancials, FinnhubEarnings } from './finnhubService';
 
 export interface CANSLIMScore {
   overallGrade: 'A' | 'B' | 'C' | 'D' | 'F';
@@ -18,13 +19,12 @@ export interface CANSLIMScore {
 
 /**
  * CANSLIM Analysis Service
- * Note: Some criteria require earnings data which isn't available from Alpaca.
- * This implementation uses price/volume data as proxies where possible.
+ * Uses real earnings and financial data from Finnhub or Alpha Vantage
  */
 export class CANSLIMService {
   /**
    * Calculate CANSLIM score based on available market data
-   * Now supports real earnings data from Alpha Vantage
+   * Supports real earnings data from Finnhub (preferred) or Alpha Vantage
    */
   static calculateScore(
     currentPrice: number,
@@ -33,7 +33,8 @@ export class CANSLIMService {
     fundamentals?: {
       earnings?: EarningsData;
       overview?: CompanyOverview;
-    }
+    },
+    finnhub?: FinnhubFundamentals
   ): CANSLIMScore {
     // Work with any available data - minimum 1 bar
     if (!historicalBars || historicalBars.length === 0) {
@@ -73,38 +74,50 @@ export class CANSLIMService {
 
     const scores = {
       // C: Current quarterly earnings per share (EPS) - should be up 25%+
-      // Use real earnings data if available, otherwise fall back to price momentum
-      c: fundamentals?.earnings
-        ? this.scoreCurrentQuarterlyEarningsWithData(fundamentals.earnings)
-        : this.scoreCurrentQuarterlyEarnings(sortedBars),
+      // Priority: Finnhub > Alpha Vantage > N/A
+      c: finnhub?.financials?.metric
+        ? this.scoreCurrentQuarterlyEarningsWithFinnhub(finnhub.financials, finnhub.earnings)
+        : fundamentals?.earnings
+          ? this.scoreCurrentQuarterlyEarningsWithData(fundamentals.earnings)
+          : { score: 0, maxScore: 15, description: 'N/A - No earnings data (configure Finnhub API)' },
       
       // A: Annual earnings growth - should be up 25%+ over last 3 years
-      // Use real earnings data if available, otherwise fall back to price appreciation
-      a: fundamentals?.earnings
-        ? this.scoreAnnualEarningsGrowthWithData(fundamentals.earnings)
-        : this.scoreAnnualEarningsGrowth(sortedBars),
+      // Priority: Finnhub > Alpha Vantage > N/A
+      a: finnhub?.financials?.metric
+        ? this.scoreAnnualEarningsGrowthWithFinnhub(finnhub.financials)
+        : fundamentals?.earnings
+          ? this.scoreAnnualEarningsGrowthWithData(fundamentals.earnings)
+          : { score: 0, maxScore: 15, description: 'N/A - No earnings data (configure Finnhub API)' },
       
       // N: New products, new management, new highs
-      // Check if stock is making new highs
-      n: this.scoreNewHighs(currentPrice, sortedBars),
+      // Use 52-week high from Finnhub if available, otherwise calculate from bars
+      n: finnhub?.financials?.metric
+        ? this.scoreNewHighsWithFinnhub(currentPrice, finnhub.financials)
+        : this.scoreNewHighs(currentPrice, sortedBars),
       
       // S: Supply and demand - small number of shares outstanding
-      // Use real shares outstanding if available, otherwise use volume patterns
-      s: fundamentals?.overview?.SharesOutstanding
-        ? this.scoreSupplyAndDemandWithData(volume, sortedBars, fundamentals.overview.SharesOutstanding)
-        : this.scoreSupplyAndDemand(volume, sortedBars),
+      // Priority: Finnhub > Alpha Vantage > N/A
+      s: finnhub?.profile?.shareOutstanding
+        ? this.scoreSupplyAndDemandWithFinnhub(volume, sortedBars, finnhub.profile.shareOutstanding)
+        : fundamentals?.overview?.SharesOutstanding
+          ? this.scoreSupplyAndDemandWithData(volume, sortedBars, fundamentals.overview.SharesOutstanding)
+          : { score: 0, maxScore: 10, description: 'N/A - No shares data (configure Finnhub API)' },
       
       // L: Leader or laggard - should be a market leader
-      // Compare price performance vs average
-      l: this.scoreLeaderOrLaggard(sortedBars),
+      // Use relative strength from Finnhub if available
+      l: finnhub?.financials?.metric
+        ? this.scoreLeaderOrLaggardWithFinnhub(finnhub.financials)
+        : this.scoreLeaderOrLaggard(sortedBars),
       
       // I: Institutional sponsorship - should have institutional backing
-      // Use volume patterns as proxy for institutional activity
-      i: this.scoreInstitutionalSponsorship(volume, sortedBars),
+      // Note: Finnhub free tier doesn't have institutional ownership, mark as N/A without data
+      i: { score: 0, maxScore: 10, description: 'N/A - Institutional data requires premium API' },
       
       // M: Market direction - overall market should be in uptrend
-      // Use recent price trend
-      m: this.scoreMarketDirection(sortedBars),
+      // Use S&P 500 relative performance from Finnhub if available
+      m: finnhub?.financials?.metric
+        ? this.scoreMarketDirectionWithFinnhub(finnhub.financials)
+        : this.scoreMarketDirection(sortedBars),
     };
 
     const totalScore = Object.values(scores).reduce((sum, s) => sum + s.score, 0);
@@ -125,6 +138,263 @@ export class CANSLIMService {
       maxTotalScore,
     };
   }
+
+  // ========================================
+  // FINNHUB SCORING METHODS (Real Data)
+  // ========================================
+
+  /**
+   * Score quarterly earnings using Finnhub financial metrics
+   */
+  private static scoreCurrentQuarterlyEarningsWithFinnhub(
+    financials: FinnhubBasicFinancials,
+    earnings: FinnhubEarnings | null
+  ): { score: number; maxScore: number; description: string } {
+    const metric = financials.metric;
+    
+    // Use quarterly EPS growth YoY from Finnhub
+    const epsGrowthQtr = metric.epsGrowthQuarterlyYoy;
+    
+    if (epsGrowthQtr === undefined || epsGrowthQtr === null || isNaN(epsGrowthQtr)) {
+      // Try to calculate from earnings data if available
+      if (earnings?.earnings && earnings.earnings.length >= 2) {
+        const current = earnings.earnings[0];
+        const previous = earnings.earnings[1];
+        if (current.actual && previous.actual && previous.actual !== 0) {
+          const growth = ((current.actual - previous.actual) / Math.abs(previous.actual)) * 100;
+          return this.gradeEarningsGrowth(growth, 'Quarterly EPS', 15);
+        }
+      }
+      return { score: 0, maxScore: 15, description: 'N/A - Quarterly EPS data unavailable' };
+    }
+
+    return this.gradeEarningsGrowth(epsGrowthQtr, 'Quarterly EPS YoY', 15);
+  }
+
+  /**
+   * Score annual earnings growth using Finnhub financial metrics
+   */
+  private static scoreAnnualEarningsGrowthWithFinnhub(
+    financials: FinnhubBasicFinancials
+  ): { score: number; maxScore: number; description: string } {
+    const metric = financials.metric;
+    
+    // Use 3-year or 5-year EPS growth from Finnhub
+    const epsGrowth3Y = metric.epsGrowth3Y;
+    const epsGrowth5Y = metric.epsGrowth5Y;
+    const epsGrowthTTM = metric.epsGrowthTTMYoy;
+    
+    // Prefer 3Y growth, then 5Y, then TTM
+    let growth: number | undefined;
+    let period = '';
+    
+    if (epsGrowth3Y !== undefined && !isNaN(epsGrowth3Y)) {
+      growth = epsGrowth3Y;
+      period = '3-Year EPS CAGR';
+    } else if (epsGrowth5Y !== undefined && !isNaN(epsGrowth5Y)) {
+      growth = epsGrowth5Y;
+      period = '5-Year EPS CAGR';
+    } else if (epsGrowthTTM !== undefined && !isNaN(epsGrowthTTM)) {
+      growth = epsGrowthTTM;
+      period = 'TTM EPS YoY';
+    }
+    
+    if (growth === undefined) {
+      return { score: 0, maxScore: 15, description: 'N/A - Annual EPS growth data unavailable' };
+    }
+
+    return this.gradeEarningsGrowth(growth, period, 15);
+  }
+
+  /**
+   * Score new highs using Finnhub 52-week data
+   */
+  private static scoreNewHighsWithFinnhub(
+    currentPrice: number,
+    financials: FinnhubBasicFinancials
+  ): { score: number; maxScore: number; description: string } {
+    const metric = financials.metric;
+    const high52Week = metric['52WeekHigh'];
+    
+    if (!high52Week || high52Week === 0) {
+      return { score: 0, maxScore: 15, description: 'N/A - 52-week high data unavailable' };
+    }
+
+    const percentFromHigh = ((currentPrice - high52Week) / high52Week) * 100;
+
+    if (percentFromHigh >= -2) {
+      return { score: 15, maxScore: 15, description: `At/near 52-week high (${percentFromHigh.toFixed(1)}% from high)` };
+    }
+    if (percentFromHigh >= -5) {
+      return { score: 12, maxScore: 15, description: `Close to 52-week high (${percentFromHigh.toFixed(1)}% from high)` };
+    }
+    if (percentFromHigh >= -15) {
+      return { score: 8, maxScore: 15, description: `Moderate distance from high (${percentFromHigh.toFixed(1)}% from high)` };
+    }
+    if (percentFromHigh >= -25) {
+      return { score: 5, maxScore: 15, description: `Below 52-week high (${percentFromHigh.toFixed(1)}% from high)` };
+    }
+    return { score: 2, maxScore: 15, description: `Well below 52-week high (${percentFromHigh.toFixed(1)}% from high)` };
+  }
+
+  /**
+   * Score supply/demand using Finnhub shares outstanding
+   */
+  private static scoreSupplyAndDemandWithFinnhub(
+    volume: number,
+    bars: Bar[],
+    shareOutstanding: number
+  ): { score: number; maxScore: number; description: string } {
+    // Convert to millions
+    const sharesInMillions = shareOutstanding;
+    
+    if (!sharesInMillions || sharesInMillions <= 0) {
+      return { score: 0, maxScore: 10, description: 'N/A - Shares outstanding data unavailable' };
+    }
+
+    // CANSLIM prefers smaller float
+    let score = 0;
+    let description = '';
+
+    if (sharesInMillions < 25) {
+      score = 10;
+      description = `Excellent: ${sharesInMillions.toFixed(1)}M shares (micro-cap float)`;
+    } else if (sharesInMillions < 100) {
+      score = 8;
+      description = `Good: ${sharesInMillions.toFixed(1)}M shares (small float)`;
+    } else if (sharesInMillions < 500) {
+      score = 6;
+      description = `Moderate: ${sharesInMillions.toFixed(1)}M shares`;
+    } else if (sharesInMillions < 2000) {
+      score = 4;
+      description = `Large: ${(sharesInMillions / 1000).toFixed(2)}B shares`;
+    } else {
+      score = 2;
+      description = `Very large: ${(sharesInMillions / 1000).toFixed(2)}B shares (mega-cap)`;
+    }
+
+    return { score, maxScore: 10, description };
+  }
+
+  /**
+   * Score leader/laggard using Finnhub relative strength vs S&P 500
+   */
+  private static scoreLeaderOrLaggardWithFinnhub(
+    financials: FinnhubBasicFinancials
+  ): { score: number; maxScore: number; description: string } {
+    const metric = financials.metric;
+    
+    // Use relative performance vs S&P 500 (52 week)
+    const relStrength52W = metric.priceRelativeToSP50052Week;
+    const returnDaily52W = metric['52WeekPriceReturnDaily'];
+    
+    if (relStrength52W !== undefined && !isNaN(relStrength52W)) {
+      // relStrength52W is the % difference vs S&P 500
+      if (relStrength52W >= 30) {
+        return { score: 10, maxScore: 10, description: `Market leader: +${relStrength52W.toFixed(1)}% vs S&P 500 (52W)` };
+      }
+      if (relStrength52W >= 15) {
+        return { score: 8, maxScore: 10, description: `Strong performer: +${relStrength52W.toFixed(1)}% vs S&P 500 (52W)` };
+      }
+      if (relStrength52W >= 0) {
+        return { score: 6, maxScore: 10, description: `Outperforming: +${relStrength52W.toFixed(1)}% vs S&P 500 (52W)` };
+      }
+      if (relStrength52W >= -15) {
+        return { score: 4, maxScore: 10, description: `Underperforming: ${relStrength52W.toFixed(1)}% vs S&P 500 (52W)` };
+      }
+      return { score: 2, maxScore: 10, description: `Laggard: ${relStrength52W.toFixed(1)}% vs S&P 500 (52W)` };
+    }
+    
+    // Fall back to absolute 52-week return
+    if (returnDaily52W !== undefined && !isNaN(returnDaily52W)) {
+      if (returnDaily52W >= 50) {
+        return { score: 10, maxScore: 10, description: `Strong: +${returnDaily52W.toFixed(1)}% (52W return)` };
+      }
+      if (returnDaily52W >= 25) {
+        return { score: 8, maxScore: 10, description: `Good: +${returnDaily52W.toFixed(1)}% (52W return)` };
+      }
+      if (returnDaily52W >= 0) {
+        return { score: 6, maxScore: 10, description: `Positive: +${returnDaily52W.toFixed(1)}% (52W return)` };
+      }
+      if (returnDaily52W >= -20) {
+        return { score: 4, maxScore: 10, description: `Weak: ${returnDaily52W.toFixed(1)}% (52W return)` };
+      }
+      return { score: 2, maxScore: 10, description: `Poor: ${returnDaily52W.toFixed(1)}% (52W return)` };
+    }
+
+    return { score: 0, maxScore: 10, description: 'N/A - Relative strength data unavailable' };
+  }
+
+  /**
+   * Score market direction using Finnhub S&P 500 performance data
+   */
+  private static scoreMarketDirectionWithFinnhub(
+    financials: FinnhubBasicFinancials
+  ): { score: number; maxScore: number; description: string } {
+    const metric = financials.metric;
+    
+    // Use price relative to S&P 500 over different periods to gauge market
+    const rel4W = metric.priceRelativeToSP5004Week;
+    const rel13W = metric.priceRelativeToSP50013Week;
+    const stockReturn = metric['52WeekPriceReturnDaily'];
+    
+    // If stock is outperforming S&P recently, market is likely favorable for this stock
+    if (rel4W !== undefined && rel13W !== undefined) {
+      const avgRel = (rel4W + rel13W) / 2;
+      
+      if (avgRel >= 10 && stockReturn !== undefined && stockReturn > 0) {
+        return { score: 10, maxScore: 10, description: `Favorable: Stock +${avgRel.toFixed(1)}% vs market (avg 4W/13W)` };
+      }
+      if (avgRel >= 0) {
+        return { score: 8, maxScore: 10, description: `Positive: Stock +${avgRel.toFixed(1)}% vs market (avg 4W/13W)` };
+      }
+      if (avgRel >= -10) {
+        return { score: 5, maxScore: 10, description: `Neutral: Stock ${avgRel.toFixed(1)}% vs market (avg 4W/13W)` };
+      }
+      return { score: 3, maxScore: 10, description: `Unfavorable: Stock ${avgRel.toFixed(1)}% vs market (avg 4W/13W)` };
+    }
+
+    // Fall back to absolute return
+    if (stockReturn !== undefined && !isNaN(stockReturn)) {
+      if (stockReturn > 20) return { score: 10, maxScore: 10, description: `Strong momentum: +${stockReturn.toFixed(1)}% (52W)` };
+      if (stockReturn > 0) return { score: 7, maxScore: 10, description: `Positive trend: +${stockReturn.toFixed(1)}% (52W)` };
+      if (stockReturn > -10) return { score: 4, maxScore: 10, description: `Weak trend: ${stockReturn.toFixed(1)}% (52W)` };
+      return { score: 2, maxScore: 10, description: `Downtrend: ${stockReturn.toFixed(1)}% (52W)` };
+    }
+
+    return { score: 0, maxScore: 10, description: 'N/A - Market direction data unavailable' };
+  }
+
+  /**
+   * Helper to grade earnings growth consistently
+   */
+  private static gradeEarningsGrowth(
+    growth: number,
+    label: string,
+    maxScore: number
+  ): { score: number; maxScore: number; description: string } {
+    // CANSLIM target: 25%+ growth
+    if (growth >= 40) {
+      return { score: maxScore, maxScore, description: `Excellent ${label}: +${growth.toFixed(1)}%` };
+    }
+    if (growth >= 25) {
+      return { score: Math.round(maxScore * 0.9), maxScore, description: `Strong ${label}: +${growth.toFixed(1)}%` };
+    }
+    if (growth >= 15) {
+      return { score: Math.round(maxScore * 0.7), maxScore, description: `Good ${label}: +${growth.toFixed(1)}%` };
+    }
+    if (growth >= 5) {
+      return { score: Math.round(maxScore * 0.5), maxScore, description: `Moderate ${label}: +${growth.toFixed(1)}%` };
+    }
+    if (growth >= 0) {
+      return { score: Math.round(maxScore * 0.3), maxScore, description: `Weak ${label}: +${growth.toFixed(1)}%` };
+    }
+    return { score: Math.round(maxScore * 0.1), maxScore, description: `Negative ${label}: ${growth.toFixed(1)}%` };
+  }
+
+  // ========================================
+  // ALPHA VANTAGE SCORING METHODS (Fallback)
+  // ========================================
 
   /**
    * Score quarterly earnings using REAL earnings data from Alpha Vantage

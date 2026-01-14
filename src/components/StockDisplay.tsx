@@ -9,129 +9,83 @@ interface StockDisplayProps {
   data: MarketData;
 }
 
+interface BarData {
+  o: number;
+  h: number;
+  l: number;
+  c: number;
+  v: number;
+  t: string;
+}
+
 const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
   const { quote, dailyBar, historicalBars } = data;
 
-  // Debug logging
-  console.log('StockDisplay received data:', {
-    hasQuote: !!quote,
-    hasDailyBar: !!dailyBar,
-    hasHistoricalBars: !!historicalBars,
-    historicalBarsCount: historicalBars?.length || 0,
-    quotePrice: quote?.last_price,
-    dailyBarPrice: dailyBar?.c,
-  });
+  // Helper function to combine bars
+  const combineBars = useMemo(() => {
+    let allBars: BarData[] = historicalBars ? [...historicalBars] : [];
+    
+    if (dailyBar) {
+      const hasDailyBar = dailyBar.t 
+        ? allBars.some(b => b.t === dailyBar.t)
+        : false;
+      if (!hasDailyBar) {
+        allBars.push(dailyBar);
+      }
+    }
+    
+    if (allBars.length === 0 && quote?.last_price) {
+      const quotePrice = quote.last_price;
+      allBars = [{
+        o: quotePrice,
+        h: quotePrice,
+        l: quotePrice,
+        c: quotePrice,
+        v: 0,
+        t: new Date().toISOString(),
+      }];
+    }
+    
+    return allBars;
+  }, [dailyBar, historicalBars, quote]);
 
-  // Calculate CANSLIM score (works with any available data)
+  // Calculate CANSLIM score
   const canslimScore = useMemo(() => {
-    // Use dailyBar if available, otherwise use quote price, otherwise skip
     const currentPrice = dailyBar?.c || quote?.last_price || 0;
     const currentVolume = dailyBar?.v || 0;
     
-    if (!currentPrice || currentPrice <= 0) {
-      console.log('CANSLIM: No valid price data');
+    if (!currentPrice || currentPrice <= 0 || combineBars.length === 0) {
       return null;
     }
-    
-    // Combine historicalBars with dailyBar for analysis
-    let allBars = historicalBars ? [...historicalBars] : [];
-    
-    // Add dailyBar if it's not already in historicalBars
-    if (dailyBar) {
-      const hasDailyBar = dailyBar.t 
-        ? allBars.some(b => b.t === dailyBar.t)
-        : false;
-      if (!hasDailyBar) {
-        allBars.push(dailyBar);
-      }
-    }
-    
-    // If we have no bars but have a quote price, create a minimal bar for analysis
-    if (allBars.length === 0 && quote?.last_price) {
-      const quotePrice = quote.last_price;
-      allBars = [{
-        o: quotePrice,
-        h: quotePrice,
-        l: quotePrice,
-        c: quotePrice,
-        v: 0,
-        t: new Date().toISOString(),
-      }];
-      console.log('CANSLIM: Created minimal bar from quote data');
-    }
-    
-    if (allBars.length === 0) {
-      console.log('CANSLIM: No bars available for analysis');
-      return null;
-    }
-    
-    console.log(`CANSLIM: Analyzing with ${allBars.length} bar(s)`);
     
     try {
-      // Pass fundamental data if available
-      const fundamentals: { earnings?: EarningsData; overview?: CompanyOverview } | undefined = data.fundamentals ? {
-        earnings: data.fundamentals.earnings,
-        overview: data.fundamentals.overview,
-      } : undefined;
+      const fundamentals: { earnings?: EarningsData; overview?: CompanyOverview } | undefined = 
+        data.fundamentals ? {
+          earnings: data.fundamentals.earnings,
+          overview: data.fundamentals.overview,
+        } : undefined;
       
-      return CANSLIMService.calculateScore(currentPrice, allBars, currentVolume, fundamentals);
-    } catch (error) {
-      console.error('CANSLIM calculation error:', error);
+      // Pass Finnhub data for real earnings analysis
+      return CANSLIMService.calculateScore(currentPrice, combineBars, currentVolume, fundamentals, data.finnhub);
+    } catch {
       return null;
     }
-  }, [dailyBar, historicalBars, quote]);
+  }, [dailyBar, quote, combineBars, data.fundamentals, data.finnhub]);
 
-  // Calculate Weinstein stage (works with any available data, more is better)
+  // Calculate Weinstein stage
   const weinsteinAnalysis = useMemo(() => {
-    // Use dailyBar if available, otherwise use quote price, otherwise skip
     const currentPrice = dailyBar?.c || quote?.last_price || 0;
     
-    if (!currentPrice || currentPrice <= 0) {
-      console.log('Weinstein: No valid price data');
+    if (!currentPrice || currentPrice <= 0 || combineBars.length === 0) {
       return null;
     }
-    
-    // Combine historicalBars with dailyBar for analysis
-    let allBars = historicalBars ? [...historicalBars] : [];
-    
-    // Add dailyBar if it's not already in historicalBars
-    if (dailyBar) {
-      const hasDailyBar = dailyBar.t 
-        ? allBars.some(b => b.t === dailyBar.t)
-        : false;
-      if (!hasDailyBar) {
-        allBars.push(dailyBar);
-      }
-    }
-    
-    // If we have no bars but have a quote price, create a minimal bar for analysis
-    if (allBars.length === 0 && quote?.last_price) {
-      const quotePrice = quote.last_price;
-      allBars = [{
-        o: quotePrice,
-        h: quotePrice,
-        l: quotePrice,
-        c: quotePrice,
-        v: 0,
-        t: new Date().toISOString(),
-      }];
-      console.log('Weinstein: Created minimal bar from quote data');
-    }
-    
-    if (allBars.length === 0) {
-      console.log('Weinstein: No bars available for analysis');
-      return null;
-    }
-    
-    console.log(`Weinstein: Analyzing with ${allBars.length} bar(s)`);
     
     try {
-      return WeinsteinService.analyzeStage(currentPrice, allBars);
+      return WeinsteinService.analyzeStage(currentPrice, combineBars);
     } catch (error) {
-      console.error('Weinstein calculation error:', error);
       return null;
     }
-  }, [dailyBar, historicalBars, quote]);
+  }, [dailyBar, quote, combineBars]);
 
   const priceChange = dailyBar ? dailyBar.c - dailyBar.o : 0;
   const priceChangePercent = dailyBar && dailyBar.o > 0 
@@ -193,7 +147,6 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
     }
   };
 
-  // Prepare chart data (simplified - in production, you'd fetch historical data)
   const chartData = dailyBar ? [
     { name: 'Open', value: dailyBar.o },
     { name: 'High', value: dailyBar.h },
@@ -202,23 +155,30 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
   ] : [];
 
   return (
-    <div className="ap-card rounded-lg shadow-ap-lg p-8 mt-8 hover:shadow-ap-glow transition-all duration-300 relative z-10">
-          <div className="flex items-center justify-between mb-8 pb-6 border-b border-gold-500/20">
-        <div className="flex items-center space-x-4">
-          <div className="w-16 h-16 bg-ap-gradient border border-gold-500/40 rounded-lg flex items-center justify-center shadow-ap">
-            <span className="text-white font-bold text-2xl">{data.symbol.charAt(0)}</span>
+    <div className="ap-card rounded-lg shadow-ap-lg p-4 sm:p-6 md:p-8 mt-4 sm:mt-6 md:mt-8 hover:shadow-ap-glow transition-all duration-300 relative z-10">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6 sm:mb-8 pb-4 sm:pb-6 border-b border-gold-500/20">
+        <div className="flex items-center space-x-3 sm:space-x-4">
+          <div className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 bg-ap-gradient border border-gold-500/40 rounded-lg flex items-center justify-center shadow-ap">
+            <span className="text-white font-bold text-xl sm:text-2xl">{data.symbol.charAt(0)}</span>
           </div>
           <div>
-            <h3 className="text-4xl font-bold text-gold-400">{data.symbol}</h3>
-            <p className="text-sm text-ap-200 font-medium">Market Analysis</p>
+            <h3 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gold-400">{data.symbol}</h3>
+            {data.companyName ? (
+              <>
+                <p className="text-sm sm:text-base md:text-lg text-ap-100 font-medium mt-1">{data.companyName}</p>
+                <p className="text-xs sm:text-sm text-ap-200 font-medium mt-0.5">Market Analysis</p>
+              </>
+            ) : (
+              <p className="text-xs sm:text-sm text-ap-200 font-medium mt-1">Market Analysis</p>
+            )}
           </div>
         </div>
         {dailyBar && (
-          <div className="text-right">
-            <div className={`text-3xl font-bold ${priceChange >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
+          <div className="text-left sm:text-right">
+            <div className={`text-2xl sm:text-3xl font-bold ${priceChange >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
               {formatCurrency(dailyBar.c)}
             </div>
-            <div className={`text-sm font-semibold ${priceChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+            <div className={`text-xs sm:text-sm font-semibold ${priceChange >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
               {priceChange >= 0 ? '+' : ''}{priceChangePercent}% ({priceChange >= 0 ? '+' : ''}{formatCurrency(priceChange)})
             </div>
           </div>
@@ -226,23 +186,23 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
       </div>
 
       {/* CANSLIM and Weinstein Analysis Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 md:gap-8 mb-6 sm:mb-8">
         {/* CANSLIM Grade Card */}
-        <div className={`rounded-lg border border-gold-500/30 p-6 shadow-ap hover:shadow-ap-lg transition-all duration-300 transform hover:scale-[1.02] ${canslimScore ? getGradeColor(canslimScore.overallGrade) : 'ap-card'} relative z-10`}>
-          <div className="flex items-center justify-between mb-6 pb-4 border-b border-gold-500/20">
+        <div className={`rounded-lg border border-gold-500/30 p-4 sm:p-6 shadow-ap hover:shadow-ap-lg transition-all duration-300 transform hover:scale-[1.02] ${canslimScore ? getGradeColor(canslimScore.overallGrade) : 'ap-card'} relative z-10`}>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4 sm:mb-6 pb-3 sm:pb-4 border-b border-gold-500/20">
             <div>
-              <h4 className="text-2xl font-bold text-gold-400">CANSLIM Grade</h4>
+              <h4 className="text-xl sm:text-2xl font-bold text-gold-400">CANSLIM Grade</h4>
               <p className="text-xs text-ap-300 mt-1">Comprehensive Analysis</p>
             </div>
             {canslimScore && (
-              <div className={`text-6xl font-bold ${getGradeTextColor(canslimScore.overallGrade)} drop-shadow-lg`}>
+              <div className={`text-5xl sm:text-6xl font-bold ${getGradeTextColor(canslimScore.overallGrade)} drop-shadow-lg`}>
                 {canslimScore.overallGrade}
               </div>
             )}
           </div>
           {canslimScore ? (
-            <div className="space-y-3">
-              <div className="bg-white/60 rounded-lg p-3 text-sm border border-bison-200">
+            <div className="space-y-2 sm:space-y-3">
+              <div className="bg-white/60 rounded-lg p-2 sm:p-3 text-xs sm:text-sm border border-bison-200">
                 <span className="font-bold text-bison-800">Overall Score: </span>
                 <span className="font-semibold text-bison-700">
                   {canslimScore.totalScore} / {canslimScore.maxTotalScore} 
@@ -251,57 +211,57 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
                   ({((canslimScore.totalScore / canslimScore.maxTotalScore) * 100).toFixed(1)}%)
                 </span>
               </div>
-              <div className="mt-4 space-y-3 text-sm">
-                <div className="bg-white/40 rounded-lg p-3 border border-bison-200">
-                  <div className="flex justify-between items-center mb-1">
+              <div className="mt-3 sm:mt-4 space-y-2 sm:space-y-3 text-xs sm:text-sm">
+                <div className="bg-white/40 rounded-lg p-2 sm:p-3 border border-bison-200">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mb-1">
                     <span className="font-bold text-bison-800">C - Current Quarterly</span>
                     <span className="font-semibold text-bison-700">{canslimScore.scores.c.score}/{canslimScore.scores.c.maxScore}</span>
                   </div>
                   <div className="text-xs text-bison-600">{canslimScore.scores.c.description}</div>
                 </div>
                 
-                <div className="bg-white/40 rounded-lg p-3 border border-bison-200">
-                  <div className="flex justify-between items-center mb-1">
+                <div className="bg-white/40 rounded-lg p-2 sm:p-3 border border-bison-200">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mb-1">
                     <span className="font-bold text-bison-800">A - Annual Growth</span>
                     <span className="font-semibold text-bison-700">{canslimScore.scores.a.score}/{canslimScore.scores.a.maxScore}</span>
                   </div>
                   <div className="text-xs text-bison-600">{canslimScore.scores.a.description}</div>
                 </div>
                 
-                <div className="bg-white/40 rounded-lg p-3 border border-bison-200">
-                  <div className="flex justify-between items-center mb-1">
+                <div className="bg-white/40 rounded-lg p-2 sm:p-3 border border-bison-200">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mb-1">
                     <span className="font-bold text-bison-800">N - New Highs</span>
                     <span className="font-semibold text-bison-700">{canslimScore.scores.n.score}/{canslimScore.scores.n.maxScore}</span>
                   </div>
                   <div className="text-xs text-bison-600">{canslimScore.scores.n.description}</div>
                 </div>
                 
-                <div className="bg-white/40 rounded-lg p-3 border border-bison-200">
-                  <div className="flex justify-between items-center mb-1">
+                <div className="bg-white/40 rounded-lg p-2 sm:p-3 border border-bison-200">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mb-1">
                     <span className="font-bold text-bison-800">S - Supply/Demand</span>
                     <span className="font-semibold text-bison-700">{canslimScore.scores.s.score}/{canslimScore.scores.s.maxScore}</span>
                   </div>
                   <div className="text-xs text-bison-600">{canslimScore.scores.s.description}</div>
                 </div>
                 
-                <div className="bg-white/40 rounded-lg p-3 border border-bison-200">
-                  <div className="flex justify-between items-center mb-1">
+                <div className="bg-white/40 rounded-lg p-2 sm:p-3 border border-bison-200">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mb-1">
                     <span className="font-bold text-bison-800">L - Leader/Laggard</span>
                     <span className="font-semibold text-bison-700">{canslimScore.scores.l.score}/{canslimScore.scores.l.maxScore}</span>
                   </div>
                   <div className="text-xs text-bison-600">{canslimScore.scores.l.description}</div>
                 </div>
                 
-                <div className="bg-white/40 rounded-lg p-3 border border-bison-200">
-                  <div className="flex justify-between items-center mb-1">
+                <div className="bg-white/40 rounded-lg p-2 sm:p-3 border border-bison-200">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mb-1">
                     <span className="font-bold text-bison-800">I - Institutional</span>
                     <span className="font-semibold text-bison-700">{canslimScore.scores.i.score}/{canslimScore.scores.i.maxScore}</span>
                   </div>
                   <div className="text-xs text-bison-600">{canslimScore.scores.i.description}</div>
                 </div>
                 
-                <div className="bg-white/40 rounded-lg p-3 border border-bison-200">
-                  <div className="flex justify-between items-center mb-1">
+                <div className="bg-white/40 rounded-lg p-2 sm:p-3 border border-bison-200">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 mb-1">
                     <span className="font-bold text-bison-800">M - Market Direction</span>
                     <span className="font-semibold text-bison-700">{canslimScore.scores.m.score}/{canslimScore.scores.m.maxScore}</span>
                   </div>
@@ -310,67 +270,62 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
               </div>
             </div>
           ) : (
-            <div className="bg-white/40 rounded-lg p-4 border border-bison-200">
-              <p className="text-sm text-bison-600 font-medium mb-2">Insufficient data for CANSLIM analysis</p>
+            <div className="bg-white/40 rounded-lg p-3 sm:p-4 border border-bison-200">
+              <p className="text-xs sm:text-sm text-bison-600 font-medium mb-2">Insufficient data for CANSLIM analysis</p>
               <p className="text-xs text-bison-500">
                 {!dailyBar ? 'Missing weekly price data. ' : ''}
                 {!historicalBars ? 'Missing historical data. ' : historicalBars.length === 0 ? 'No historical bars received. ' : `Only ${historicalBars.length} day(s) available (need at least 5 for basic analysis). `}
                 Please ensure your Alpaca API credentials are configured and try again.
               </p>
-              {historicalBars && historicalBars.length > 0 && (
-                <p className="text-xs text-amber-600 mt-2">
-                  Debug: Received {historicalBars.length} historical bar(s). Sample data: {JSON.stringify(historicalBars[0]).substring(0, 100)}...
-                </p>
-              )}
             </div>
           )}
         </div>
 
         {/* Weinstein Stage Card */}
-        <div className={`rounded-2xl border-2 p-6 shadow-bison hover:shadow-bison-lg transition-all duration-300 transform hover:scale-[1.02] ${weinsteinAnalysis ? getStageColor(weinsteinAnalysis.stage) : 'bg-bison-50 border-bison-300'}`}>
-          <div className="mb-6 pb-4 border-b-2 border-bison-200">
-            <h4 className="text-2xl font-bold text-bison-800 mb-2">Weinstein Stage Analysis</h4>
+        <div className={`rounded-2xl border-2 p-4 sm:p-6 shadow-bison hover:shadow-bison-lg transition-all duration-300 transform hover:scale-[1.02] ${weinsteinAnalysis ? getStageColor(weinsteinAnalysis.stage) : 'bg-bison-50 border-bison-300'}`}>
+          <div className="mb-4 sm:mb-6 pb-3 sm:pb-4 border-b-2 border-bison-200">
+            <h4 className="text-xl sm:text-2xl font-bold text-bison-800 mb-2">Weinstein Stage Analysis</h4>
             <p className="text-xs text-bison-600">Market Cycle Position</p>
             {weinsteinAnalysis && (
-              <div className={`text-3xl font-bold mt-3 ${getStageTextColor(weinsteinAnalysis.stage)} drop-shadow-lg`}>
+              <div className={`text-2xl sm:text-3xl font-bold mt-3 ${getStageTextColor(weinsteinAnalysis.stage)} drop-shadow-lg`}>
                 {weinsteinAnalysis.stageName}
               </div>
             )}
           </div>
           {weinsteinAnalysis ? (
-            <div className="space-y-4">
-              <p className="text-sm text-bison-700 bg-white/60 rounded-lg p-3 border border-bison-200 leading-relaxed">
+            <div className="space-y-3 sm:space-y-4">
+              <p className="text-xs sm:text-sm text-bison-700 bg-white/60 rounded-lg p-2 sm:p-3 border border-bison-200 leading-relaxed">
                 {weinsteinAnalysis.description}
               </p>
-              <div className="space-y-3 text-sm">
-                <div className="bg-white/40 rounded-lg p-3 border border-bison-200">
-                  <div className="flex justify-between items-center">
+              <div className="space-y-2 sm:space-y-3 text-xs sm:text-sm">
+                <div className="bg-white/40 rounded-lg p-2 sm:p-3 border border-bison-200">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
                     <span className="font-bold text-bison-800">Current Price</span>
                     <span className="font-semibold text-bison-700">{formatCurrency(weinsteinAnalysis.currentPrice)}</span>
                   </div>
                 </div>
-                <div className="bg-white/40 rounded-lg p-3 border border-bison-200">
-                  <div className="flex justify-between items-center">
+                <div className="bg-white/40 rounded-lg p-2 sm:p-3 border border-bison-200">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
                     <span className="font-bold text-bison-800">30-Week MA</span>
                     <span className="font-semibold text-bison-700">{formatCurrency(weinsteinAnalysis.thirtyWeekMA)}</span>
                   </div>
                 </div>
-                <div className="bg-white/40 rounded-lg p-3 border border-bison-200">
-                  <div className="flex justify-between items-center">
+                <div className="bg-white/40 rounded-lg p-2 sm:p-3 border border-bison-200">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
                     <span className="font-bold text-bison-800">Price vs MA</span>
                     <span className={`font-semibold ${weinsteinAnalysis.priceVsMA >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>
                       {weinsteinAnalysis.priceVsMA >= 0 ? '+' : ''}{weinsteinAnalysis.priceVsMA.toFixed(2)}%
                     </span>
                   </div>
                 </div>
-                <div className="bg-white/40 rounded-lg p-3 border border-bison-200">
-                  <div className="flex justify-between items-center">
+                <div className="bg-white/40 rounded-lg p-2 sm:p-3 border border-bison-200">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
                     <span className="font-bold text-bison-800">Trend Strength</span>
                     <span className="font-semibold text-bison-700">{weinsteinAnalysis.trendStrength}</span>
                   </div>
                 </div>
-                <div className="bg-white/40 rounded-lg p-3 border border-bison-200">
-                  <div className="flex justify-between items-center">
+                <div className="bg-white/40 rounded-lg p-2 sm:p-3 border border-bison-200">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1">
                     <span className="font-bold text-bison-800">Volatility</span>
                     <span className="font-semibold text-bison-700">{weinsteinAnalysis.volatility}</span>
                   </div>
@@ -378,8 +333,8 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
               </div>
             </div>
           ) : (
-            <div className="bg-white/40 rounded-lg p-4 border border-bison-200">
-              <p className="text-sm text-bison-600 font-medium mb-2">Insufficient data for Weinstein analysis</p>
+            <div className="bg-white/40 rounded-lg p-3 sm:p-4 border border-bison-200">
+              <p className="text-xs sm:text-sm text-bison-600 font-medium mb-2">Insufficient data for Weinstein analysis</p>
               <p className="text-xs text-bison-500">
                 {!dailyBar ? 'Missing weekly price data. ' : ''}
                 {!historicalBars ? 'Missing historical data. ' : historicalBars.length < 20 ? `Only ${historicalBars.length} day(s) available (need at least 20 for basic analysis, 150+ for full accuracy). ` : ''}
@@ -390,66 +345,66 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        <div className="ap-card rounded-lg p-6 shadow-ap relative z-10">
-          <h4 className="text-xl font-bold text-bison-800 mb-4 pb-2 border-b-2 border-bison-200">Quote Information</h4>
-          <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
+        <div className="ap-card rounded-lg p-4 sm:p-6 shadow-ap relative z-10">
+          <h4 className="text-lg sm:text-xl font-bold text-bison-800 mb-3 sm:mb-4 pb-2 border-b-2 border-bison-200">Quote Information</h4>
+          <div className="space-y-2 sm:space-y-3">
             {quote.last_price && (
-              <div className="flex justify-between py-3 border-b border-bison-200">
-                <span className="text-bison-700 font-medium">Last Price</span>
-                <span className="font-bold text-bison-800">{formatCurrency(quote.last_price)}</span>
+              <div className="flex flex-col sm:flex-row sm:justify-between py-2 sm:py-3 border-b border-bison-200 gap-1">
+                <span className="text-bison-700 font-medium text-sm sm:text-base">Last Price</span>
+                <span className="font-bold text-bison-800 text-sm sm:text-base">{formatCurrency(quote.last_price)}</span>
               </div>
             )}
             {quote.bid_price && (
-              <div className="flex justify-between py-3 border-b border-bison-200">
-                <span className="text-bison-700 font-medium">Bid Price</span>
-                <span className="font-bold text-bison-800">{formatCurrency(quote.bid_price)}</span>
+              <div className="flex flex-col sm:flex-row sm:justify-between py-2 sm:py-3 border-b border-bison-200 gap-1">
+                <span className="text-bison-700 font-medium text-sm sm:text-base">Bid Price</span>
+                <span className="font-bold text-bison-800 text-sm sm:text-base">{formatCurrency(quote.bid_price)}</span>
               </div>
             )}
             {quote.ask_price && (
-              <div className="flex justify-between py-3 border-b border-bison-200">
-                <span className="text-bison-700 font-medium">Ask Price</span>
-                <span className="font-bold text-bison-800">{formatCurrency(quote.ask_price)}</span>
+              <div className="flex flex-col sm:flex-row sm:justify-between py-2 sm:py-3 border-b border-bison-200 gap-1">
+                <span className="text-bison-700 font-medium text-sm sm:text-base">Ask Price</span>
+                <span className="font-bold text-bison-800 text-sm sm:text-base">{formatCurrency(quote.ask_price)}</span>
               </div>
             )}
             {quote.bid_size && (
-              <div className="flex justify-between py-3 border-b border-bison-200">
-                <span className="text-bison-700 font-medium">Bid Size</span>
-                <span className="font-bold text-bison-800">{formatNumber(quote.bid_size)}</span>
+              <div className="flex flex-col sm:flex-row sm:justify-between py-2 sm:py-3 border-b border-bison-200 gap-1">
+                <span className="text-bison-700 font-medium text-sm sm:text-base">Bid Size</span>
+                <span className="font-bold text-bison-800 text-sm sm:text-base">{formatNumber(quote.bid_size)}</span>
               </div>
             )}
             {quote.ask_size && (
-              <div className="flex justify-between py-3 border-b border-bison-200">
-                <span className="text-bison-700 font-medium">Ask Size</span>
-                <span className="font-bold text-bison-800">{formatNumber(quote.ask_size)}</span>
+              <div className="flex flex-col sm:flex-row sm:justify-between py-2 sm:py-3 border-b border-bison-200 gap-1">
+                <span className="text-bison-700 font-medium text-sm sm:text-base">Ask Size</span>
+                <span className="font-bold text-bison-800 text-sm sm:text-base">{formatNumber(quote.ask_size)}</span>
               </div>
             )}
           </div>
         </div>
 
         {dailyBar && (
-          <div className="ap-card rounded-lg p-6 shadow-ap relative z-10">
-            <h4 className="text-xl font-bold text-bison-800 mb-4 pb-2 border-b-2 border-bison-200">Weekly Statistics</h4>
-            <div className="space-y-3">
-              <div className="flex justify-between py-3 border-b border-bison-200">
-                <span className="text-bison-700 font-medium">Open</span>
-                <span className="font-bold text-bison-800">{formatCurrency(dailyBar.o)}</span>
+          <div className="ap-card rounded-lg p-4 sm:p-6 shadow-ap relative z-10">
+            <h4 className="text-lg sm:text-xl font-bold text-bison-800 mb-3 sm:mb-4 pb-2 border-b-2 border-bison-200">Weekly Statistics</h4>
+            <div className="space-y-2 sm:space-y-3">
+              <div className="flex flex-col sm:flex-row sm:justify-between py-2 sm:py-3 border-b border-bison-200 gap-1">
+                <span className="text-bison-700 font-medium text-sm sm:text-base">Open</span>
+                <span className="font-bold text-bison-800 text-sm sm:text-base">{formatCurrency(dailyBar.o)}</span>
               </div>
-              <div className="flex justify-between py-3 border-b border-bison-200">
-                <span className="text-bison-700 font-medium">High</span>
-                <span className="font-bold text-emerald-700">{formatCurrency(dailyBar.h)}</span>
+              <div className="flex flex-col sm:flex-row sm:justify-between py-2 sm:py-3 border-b border-bison-200 gap-1">
+                <span className="text-bison-700 font-medium text-sm sm:text-base">High</span>
+                <span className="font-bold text-emerald-700 text-sm sm:text-base">{formatCurrency(dailyBar.h)}</span>
               </div>
-              <div className="flex justify-between py-3 border-b border-bison-200">
-                <span className="text-bison-700 font-medium">Low</span>
-                <span className="font-bold text-red-700">{formatCurrency(dailyBar.l)}</span>
+              <div className="flex flex-col sm:flex-row sm:justify-between py-2 sm:py-3 border-b border-bison-200 gap-1">
+                <span className="text-bison-700 font-medium text-sm sm:text-base">Low</span>
+                <span className="font-bold text-red-700 text-sm sm:text-base">{formatCurrency(dailyBar.l)}</span>
               </div>
-              <div className="flex justify-between py-3 border-b border-bison-200">
-                <span className="text-bison-700 font-medium">Close</span>
-                <span className="font-bold text-bison-800">{formatCurrency(dailyBar.c)}</span>
+              <div className="flex flex-col sm:flex-row sm:justify-between py-2 sm:py-3 border-b border-bison-200 gap-1">
+                <span className="text-bison-700 font-medium text-sm sm:text-base">Close</span>
+                <span className="font-bold text-bison-800 text-sm sm:text-base">{formatCurrency(dailyBar.c)}</span>
               </div>
-              <div className="flex justify-between py-3">
-                <span className="text-bison-700 font-medium">Volume</span>
-                <span className="font-bold text-bison-800">{formatNumber(dailyBar.v)}</span>
+              <div className="flex flex-col sm:flex-row sm:justify-between py-2 sm:py-3 gap-1">
+                <span className="text-bison-700 font-medium text-sm sm:text-base">Volume</span>
+                <span className="font-bold text-bison-800 text-sm sm:text-base">{formatNumber(dailyBar.v)}</span>
               </div>
             </div>
           </div>
@@ -457,20 +412,21 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
       </div>
 
       {dailyBar && chartData.length > 0 && (
-        <div className="mt-8 bg-bison-50 rounded-xl p-6 border-2 border-bison-200 shadow-bison">
-          <h4 className="text-xl font-bold text-bison-800 mb-6 pb-2 border-b-2 border-bison-200">Price Overview</h4>
-          <ResponsiveContainer width="100%" height={300}>
+        <div className="mt-6 sm:mt-8 bg-bison-50 rounded-xl p-4 sm:p-6 border-2 border-bison-200 shadow-bison overflow-x-auto">
+          <h4 className="text-lg sm:text-xl font-bold text-bison-800 mb-4 sm:mb-6 pb-2 border-b-2 border-bison-200">Price Overview</h4>
+          <ResponsiveContainer width="100%" height={250} minHeight={200} className="min-w-[280px]">
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#d4c2a3" />
-              <XAxis dataKey="name" stroke="#6d5440" />
-              <YAxis stroke="#6d5440" />
+              <XAxis dataKey="name" stroke="#6d5440" fontSize={12} />
+              <YAxis stroke="#6d5440" fontSize={12} />
               <Tooltip 
                 formatter={(value: number) => formatCurrency(value)}
                 contentStyle={{ 
                   backgroundColor: '#faf8f5', 
                   border: '2px solid #9d7a5a',
                   borderRadius: '8px',
-                  color: '#4a382c'
+                  color: '#4a382c',
+                  fontSize: '12px'
                 }}
               />
               <Line 
@@ -478,8 +434,8 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
                 dataKey="value" 
                 stroke="#9d7a5a" 
                 strokeWidth={3}
-                dot={{ fill: '#6d5440', r: 5 }}
-                activeDot={{ r: 7, fill: '#9d7a5a' }}
+                dot={{ fill: '#6d5440', r: 4 }}
+                activeDot={{ r: 6, fill: '#9d7a5a' }}
               />
             </LineChart>
           </ResponsiveContainer>
@@ -487,7 +443,7 @@ const StockDisplay: React.FC<StockDisplayProps> = ({ data }) => {
       )}
 
       {quote.updated_at && (
-        <p className="text-sm text-bison-600 mt-6 text-center italic">
+        <p className="text-xs sm:text-sm text-bison-600 mt-4 sm:mt-6 text-center italic">
           Last updated: {new Date(quote.updated_at).toLocaleString()}
         </p>
       )}

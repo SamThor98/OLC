@@ -138,18 +138,11 @@ class AlphaVantageService {
         },
       });
 
-      if (response.data.Note) {
-        console.warn('Alpha Vantage API call frequency limit reached. Please wait.');
-        return null;
-      }
-
-      if (response.data.Information) {
-        console.warn('Alpha Vantage API:', response.data.Information);
-        return null;
+      if (response.data.Note || response.data.Information) {
+        return null; // Rate limit or API message
       }
 
       if (!response.data.quarterlyEarnings && !response.data.annualEarnings) {
-        console.warn(`No earnings data found for ${symbol}`);
         return null;
       }
 
@@ -158,11 +151,7 @@ class AlphaVantageService {
         quarterlyEarnings: response.data.quarterlyEarnings || [],
         annualEarnings: response.data.annualEarnings || [],
       };
-    } catch (error: any) {
-      console.error(`Error fetching earnings for ${symbol}:`, {
-        message: error.message,
-        response: error.response?.data,
-      });
+    } catch {
       return null;
     }
   }
@@ -183,27 +172,12 @@ class AlphaVantageService {
         },
       });
 
-      if (response.data.Note) {
-        console.warn('Alpha Vantage API call frequency limit reached. Please wait.');
-        return null;
-      }
-
-      if (response.data.Information) {
-        console.warn('Alpha Vantage API:', response.data.Information);
-        return null;
-      }
-
-      if (!response.data.Symbol) {
-        console.warn(`No overview data found for ${symbol}`);
+      if (response.data.Note || response.data.Information || !response.data.Symbol) {
         return null;
       }
 
       return response.data as CompanyOverview;
-    } catch (error: any) {
-      console.error(`Error fetching overview for ${symbol}:`, {
-        message: error.message,
-        response: error.response?.data,
-      });
+    } catch {
       return null;
     }
   }
@@ -224,18 +198,7 @@ class AlphaVantageService {
         },
       });
 
-      if (response.data.Note) {
-        console.warn('Alpha Vantage API call frequency limit reached. Please wait.');
-        return null;
-      }
-
-      if (response.data.Information) {
-        console.warn('Alpha Vantage API:', response.data.Information);
-        return null;
-      }
-
-      if (!response.data.symbol) {
-        console.warn(`No income statement data found for ${symbol}`);
+      if (response.data.Note || response.data.Information || !response.data.symbol) {
         return null;
       }
 
@@ -244,11 +207,7 @@ class AlphaVantageService {
         annualReports: response.data.annualReports || [],
         quarterlyReports: response.data.quarterlyReports || [],
       };
-    } catch (error: any) {
-      console.error(`Error fetching income statement for ${symbol}:`, {
-        message: error.message,
-        response: error.response?.data,
-      });
+    } catch {
       return null;
     }
   }
@@ -278,21 +237,15 @@ class AlphaVantageService {
   }
 }
 
-// Create singleton instance
+// Create singleton instance (optional - for enhanced CANSLIM analysis with real earnings data)
 const getAlphaVantageService = (): AlphaVantageService | null => {
   const apiKey = import.meta.env.VITE_ALPHA_VANTAGE_API_KEY;
 
-  if (!apiKey) {
-    console.warn('Alpha Vantage API key not found in environment variables');
+  if (!apiKey || apiKey.length < 10) {
+    // Alpha Vantage is optional - app works without it using Alpaca data
     return null;
   }
 
-  if (apiKey.length < 10) {
-    console.warn('Alpha Vantage API key appears to be invalid (too short)');
-    return null;
-  }
-
-  console.log('Alpha Vantage Service initialized successfully');
   return new AlphaVantageService(apiKey);
 };
 

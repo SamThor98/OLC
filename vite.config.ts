@@ -7,8 +7,8 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: '0.0.0.0', // Allow external connections
-    port: 5173,
-    strictPort: false, // Try next available port if 5173 is taken
+    port: 5174, // Changed to 5174 since 5173 is in use
+    strictPort: false, // Try next available port if 5174 is taken
     open: true, // Automatically open browser
   },
 })

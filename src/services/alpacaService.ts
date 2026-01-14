@@ -21,12 +21,24 @@ export interface Bar {
 }
 
 import { EarningsData, CompanyOverview, IncomeStatement } from './alphaVantageService';
+import { FinnhubFundamentals } from './finnhubService';
+
+export interface AssetInfo {
+  symbol: string;
+  name: string;
+  exchange: string;
+  asset_class: string;
+  tradable: boolean;
+}
 
 export interface MarketData {
   symbol: string;
+  companyName?: string; // Company name from Alpaca assets or Finnhub
   quote: StockQuote;
   dailyBar?: Bar;
   historicalBars?: Bar[]; // For CANSLIM and Weinstein analysis
+  assetInfo?: AssetInfo; // Asset details from Alpaca
+  finnhub?: FinnhubFundamentals; // Real earnings and financial data from Finnhub
   fundamentals?: {
     earnings?: EarningsData;
     overview?: CompanyOverview;
@@ -65,17 +77,9 @@ class AlpacaService {
       const response = await this.client.get(`/stocks/${symbol}/snapshot`);
       const snapshot = response.data;
       
-      console.log(`Alpaca API getQuote response for ${symbol}:`, {
-        status: response.status,
-        hasData: !!snapshot,
-        hasQuote: !!snapshot.latestQuote,
-        hasTrade: !!snapshot.latestTrade,
-        symbol: snapshot.symbol,
-      });
-      
       // Extract quote from snapshot
       if (snapshot.latestQuote) {
-        const quote = {
+        return {
           symbol: snapshot.symbol || symbol,
           ask_price: snapshot.latestQuote.ap || 0,
           ask_size: snapshot.latestQuote.as || 0,
@@ -85,12 +89,9 @@ class AlpacaService {
           last_size: snapshot.latestTrade?.s || 0,
           updated_at: snapshot.latestQuote.t || new Date().toISOString(),
         };
-        console.log(`Quote extracted for ${symbol}:`, quote);
-        return quote;
       }
       
       // Fallback: return empty quote if no data
-      console.warn(`No quote data in snapshot for ${symbol}. Snapshot:`, snapshot);
       return {
         symbol,
         ask_price: 0,
@@ -140,22 +141,8 @@ class AlpacaService {
       
       const response = await this.client.get('/stocks/bars', { params });
       
-      // Log the response for debugging
-      console.log(`Alpaca API getBars response for ${symbol}:`, {
-        status: response.status,
-        hasData: !!response.data,
-        hasBars: !!response.data?.bars,
-        symbolKey: symbol,
-        barsCount: response.data?.bars?.[symbol]?.length || 0,
-        sampleBar: response.data?.bars?.[symbol]?.[0],
-      });
-      
       // Alpaca returns bars as an object with symbol as key
       const bars = response.data.bars?.[symbol] || [];
-      
-      if (bars.length === 0) {
-        console.warn(`No bars returned for ${symbol}. Response data:`, response.data);
-      }
       
       const mappedBars = bars.map((bar: any) => ({
         o: bar.o || 0,
@@ -167,13 +154,7 @@ class AlpacaService {
       }));
       
       // Filter out invalid bars (all zeros or missing close price)
-      const validBars = mappedBars.filter((bar: Bar) => bar.c > 0);
-      
-      if (validBars.length < mappedBars.length) {
-        console.warn(`Filtered out ${mappedBars.length - validBars.length} invalid bars for ${symbol}`);
-      }
-      
-      return validBars;
+      return mappedBars.filter((bar: Bar) => bar.c > 0);
     } catch (error: any) {
       // Better error logging
       console.error(`Error fetching bars for ${symbol}:`, {
@@ -220,46 +201,30 @@ class AlpacaService {
           for (const limit of limitsToTry) {
             try {
               historicalBars = await this.getBars(symbol, '1Week', limit);
-              if (historicalBars.length > 0) {
-                console.log(`Fetched ${historicalBars.length} bars using limit ${limit}`);
-                break;
-              }
-            } catch (err) {
-              console.warn(`Failed to fetch ${limit} bars, trying smaller amount...`);
+              if (historicalBars.length > 0) break;
+            } catch {
               continue;
             }
           }
-        } else {
-          console.log(`Successfully fetched ${historicalBars.length} historical bars using date range`);
         }
-      } catch (err) {
-        console.warn('Date range fetch failed, trying limit-based approach...', err);
-        // Fall back to limit-based
+      } catch {
+        // Fall back to limit-based approach
         const limitsToTry = [52, 30, 20, 10];
         for (const limit of limitsToTry) {
           try {
             historicalBars = await this.getBars(symbol, '1Week', limit);
-            if (historicalBars.length > 0) {
-              console.log(`Fetched ${historicalBars.length} bars using limit ${limit}`);
-              break;
-            }
-          } catch (err2) {
-            console.warn(`Failed to fetch ${limit} bars, trying smaller amount...`);
+            if (historicalBars.length > 0) break;
+          } catch {
             continue;
           }
         }
       }
 
-      // Fetch current quote and latest weekly bar
-      const [quote, weeklyBars] = await Promise.all([
-        this.getQuote(symbol).catch((err) => {
-          console.warn(`Quote fetch failed for ${symbol}:`, err);
-          return null;
-        }),
-        this.getBars(symbol, '1Week', 1).catch((err) => {
-          console.warn(`Weekly bars fetch failed for ${symbol}:`, err);
-          return null;
-        }),
+      // Fetch current quote, latest weekly bar, and asset info (for company name)
+      const [quote, weeklyBars, assetInfo] = await Promise.all([
+        this.getQuote(symbol).catch(() => null),
+        this.getBars(symbol, '1Week', 1).catch(() => null),
+        this.getAssetInfo(symbol).catch(() => null),
       ]);
 
       // Combine weekly bar with historical bars if we have both
@@ -279,66 +244,52 @@ class AlpacaService {
       }
 
       // Determine dailyBar (use the most recent weekly bar if available)
-      // Note: Keeping variable name as dailyBar for backward compatibility, but it contains weekly data
       const finalDailyBar = weeklyBars?.[0] || (allHistoricalBars.length > 0 ? allHistoricalBars[allHistoricalBars.length - 1] : undefined);
 
-      console.log(`Market data summary for ${symbol}:`, {
-        hasQuote: !!quote,
-        quoteData: quote ? {
-          last_price: quote.last_price,
-          bid_price: quote.bid_price,
-          ask_price: quote.ask_price,
-        } : null,
-        hasDailyBar: !!finalDailyBar,
-        dailyBarData: finalDailyBar ? {
-          o: finalDailyBar.o,
-          h: finalDailyBar.h,
-          l: finalDailyBar.l,
-          c: finalDailyBar.c,
-          v: finalDailyBar.v,
-          t: finalDailyBar.t,
-        } : null,
-        historicalBarsCount: allHistoricalBars.length,
-        weeklyBarsCount: weeklyBars?.length || 0,
-        validBarsCount: allHistoricalBars.filter((b: Bar) => b.c > 0).length,
-        sampleBar: allHistoricalBars[0] ? {
-          o: allHistoricalBars[0].o,
-          h: allHistoricalBars[0].h,
-          l: allHistoricalBars[0].l,
-          c: allHistoricalBars[0].c,
-          v: allHistoricalBars[0].v,
-          t: allHistoricalBars[0].t,
-        } : null,
-      });
-
-      // Fetch fundamental data from Alpha Vantage if available
+      // Fetch fundamental data from Finnhub (primary) or Alpha Vantage (fallback)
+      let finnhubData: FinnhubFundamentals | undefined = undefined;
       let fundamentals: MarketData['fundamentals'] = undefined;
+
+      // Try Finnhub first (preferred - faster, more generous rate limits)
       try {
-        // Dynamically import to avoid circular dependency
-        const { alphaVantageService } = await import('./alphaVantageService');
-        if (alphaVantageService) {
-          console.log(`Fetching fundamental data for ${symbol} from Alpha Vantage...`);
-          const fundamentalData = await alphaVantageService.getFundamentals(symbol);
-          if (fundamentalData.earnings || fundamentalData.overview || fundamentalData.incomeStatement) {
-            // Convert null to undefined to match the optional property type
-            fundamentals = {
-              earnings: fundamentalData.earnings ?? undefined,
-              overview: fundamentalData.overview ?? undefined,
-              incomeStatement: fundamentalData.incomeStatement ?? undefined,
-            };
-            console.log(`Successfully fetched fundamental data for ${symbol}`);
-          }
+        const { finnhubService } = await import('./finnhubService');
+        if (finnhubService) {
+          finnhubData = await finnhubService.getFundamentals(symbol);
         }
-      } catch (error) {
-        console.warn(`Failed to fetch fundamental data for ${symbol}:`, error);
-        // Continue without fundamental data - not critical for basic functionality
+      } catch {
+        // Finnhub not configured - try Alpha Vantage
       }
+
+      // Fall back to Alpha Vantage if Finnhub didn't provide data
+      if (!finnhubData?.profile && !finnhubData?.financials) {
+        try {
+          const { alphaVantageService } = await import('./alphaVantageService');
+          if (alphaVantageService) {
+            const fundamentalData = await alphaVantageService.getFundamentals(symbol);
+            if (fundamentalData.earnings || fundamentalData.overview || fundamentalData.incomeStatement) {
+              fundamentals = {
+                earnings: fundamentalData.earnings ?? undefined,
+                overview: fundamentalData.overview ?? undefined,
+                incomeStatement: fundamentalData.incomeStatement ?? undefined,
+              };
+            }
+          }
+        } catch {
+          // Alpha Vantage not configured or failed
+        }
+      }
+
+      // Determine company name (priority: Finnhub > Alpaca > Alpha Vantage)
+      const companyName = finnhubData?.profile?.name || assetInfo?.name || fundamentals?.overview?.Name;
 
       return {
         symbol,
+        companyName,
         quote: quote || {} as StockQuote,
         dailyBar: finalDailyBar,
         historicalBars: allHistoricalBars.length > 0 ? allHistoricalBars : undefined,
+        assetInfo: assetInfo || undefined,
+        finnhub: finnhubData?.profile || finnhubData?.financials || finnhubData?.earnings ? finnhubData : undefined,
         fundamentals,
       };
     } catch (error) {
@@ -455,6 +406,44 @@ class AlpacaService {
     }
   }
 
+  /**
+   * Get asset information including company name from Alpaca Trading API
+   */
+  async getAssetInfo(symbol: string): Promise<AssetInfo | null> {
+    try {
+      const tradingBaseURL = this.config.usePaperTrading 
+        ? 'https://paper-api.alpaca.markets/v2' 
+        : 'https://api.alpaca.markets/v2';
+      
+      const tradingClient = axios.create({
+        baseURL: tradingBaseURL,
+        headers: {
+          'APCA-API-KEY-ID': this.config.apiKey,
+          'APCA-API-SECRET-KEY': this.config.secretKey,
+        },
+      });
+      
+      const response = await tradingClient.get(`/assets/${symbol.toUpperCase()}`);
+      
+      if (response.data && response.data.symbol) {
+        return {
+          symbol: response.data.symbol,
+          name: response.data.name || '',
+          exchange: response.data.exchange || '',
+          asset_class: response.data.class || '',
+          tradable: response.data.tradable || false,
+        };
+      }
+      return null;
+    } catch (error: any) {
+      // Don't log error for 404 (symbol not found) - this is expected for some symbols
+      if (error.response?.status !== 404) {
+        console.warn(`Error fetching asset info for ${symbol}:`, error.message);
+      }
+      return null;
+    }
+  }
+
   async getAccount(): Promise<any> {
     try {
       // Account endpoint uses trading API, not market data API
@@ -486,33 +475,16 @@ const getAlpacaService = (): AlpacaService | null => {
   const secretKey = import.meta.env.VITE_ALPACA_SECRET_KEY;
   const usePaperTrading = import.meta.env.VITE_ALPACA_USE_PAPER !== 'false';
 
-  console.log('Alpaca Service Initialization:', {
-    hasApiKey: !!apiKey,
-    hasSecretKey: !!secretKey,
-    apiKeyLength: apiKey?.length || 0,
-    secretKeyLength: secretKey?.length || 0,
-    usePaperTrading,
-    envKeys: Object.keys(import.meta.env).filter((k: string) => k.startsWith('VITE_ALPACA')),
-  });
-
   if (!apiKey || !secretKey) {
-    console.error('Alpaca API credentials not found in environment variables', {
-      apiKeyPresent: !!apiKey,
-      secretKeyPresent: !!secretKey,
-      allEnvKeys: Object.keys(import.meta.env),
-    });
+    console.warn('Alpaca API credentials not configured');
     return null;
   }
 
   if (apiKey.length < 10 || secretKey.length < 10) {
-    console.error('Alpaca API credentials appear to be invalid (too short)', {
-      apiKeyLength: apiKey.length,
-      secretKeyLength: secretKey.length,
-    });
+    console.warn('Alpaca API credentials appear to be invalid');
     return null;
   }
 
-  console.log('Alpaca Service created successfully');
   return new AlpacaService({
     apiKey,
     secretKey,
