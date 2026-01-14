@@ -1,0 +1,16 @@
+{
+  "name": "olc-daily-market-email",
+  "version": "1.0.0",
+  "description": "Daily market email for Old Logan Capital",
+  "main": "dailyMarketEmail.js",
+  "scripts": {
+    "send": "node dailyMarketEmail.js",
+    "test": "node dailyMarketEmail.js --test"
+  },
+  "dependencies": {
+    "yahoo-finance2": "^2.11.0",
+    "nodemailer": "^6.9.8"
+  },
+  "author": "Old Logan Capital",
+  "license": "MIT"
+}
