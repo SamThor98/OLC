@@ -80,9 +80,13 @@ async function getYahooQuote(symbol) {
     
     // Get current price info
     const currentPrice = meta.regularMarketPrice || 0;
-    const previousClose = meta.chartPreviousClose || meta.previousClose || currentPrice;
+    
+    // IMPORTANT: Use previousClose (yesterday's close), NOT chartPreviousClose (start of chart range)
+    const previousClose = meta.previousClose || meta.regularMarketPreviousClose || currentPrice;
     const change = currentPrice - previousClose;
     const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
+    
+    console.log(`     Price: $${currentPrice}, Prev Close: $${previousClose}, Change: ${changePercent.toFixed(2)}%`);
     
     // Calculate historical performance
     let weekReturn = 0, monthReturn = 0, threeMonthReturn = 0, ytdReturn = 0;
