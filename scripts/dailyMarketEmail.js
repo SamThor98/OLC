@@ -9,7 +9,6 @@
  * Uses Yahoo Finance for free, reliable market data
  */
 
-const yahooFinance = require('yahoo-finance2').default;
 const nodemailer = require('nodemailer');
 
 // ============================================================================
@@ -33,22 +32,77 @@ const CONFIG = {
 };
 
 // ============================================================================
+// YAHOO FINANCE SETUP
+// ============================================================================
+
+let yahooFinance = null;
+
+async function initYahooFinance() {
+  if (yahooFinance) return yahooFinance;
+  
+  try {
+    const yf = require('yahoo-finance2').default;
+    
+    // Suppress validation errors and notices
+    yf.setGlobalConfig({
+      validation: {
+        logErrors: false,
+        logOptionsErrors: false,
+      }
+    });
+    
+    // Suppress survey notices
+    yf.suppressNotices(['yahooSurvey']);
+    
+    yahooFinance = yf;
+    console.log('   ✓ Yahoo Finance initialized');
+    return yf;
+  } catch (error) {
+    console.error('   ✗ Failed to initialize Yahoo Finance:', error.message);
+    throw error;
+  }
+}
+
+// Add delay between requests to avoid rate limiting
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ============================================================================
 // DATA FETCHING
 // ============================================================================
 
 async function getStockData(symbol) {
   try {
-    // Suppress Yahoo Finance warnings
-    yahooFinance.suppressNotices(['yahooSurvey']);
+    const yf = await initYahooFinance();
     
-    const [quote, historical] = await Promise.all([
-      yahooFinance.quote(symbol),
-      yahooFinance.historical(symbol, {
-        period1: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000), // 1 year ago
+    // Add small delay to avoid rate limiting
+    await delay(500);
+    
+    console.log(`     Fetching quote for ${symbol}...`);
+    const quote = await yf.quote(symbol);
+    
+    if (!quote || !quote.regularMarketPrice) {
+      console.log(`     ✗ No quote data for ${symbol}`);
+      return null;
+    }
+    
+    console.log(`     ✓ Got quote: $${quote.regularMarketPrice}`);
+    
+    // Try to get historical data (optional, don't fail if unavailable)
+    let historical = [];
+    try {
+      await delay(300);
+      console.log(`     Fetching historical data for ${symbol}...`);
+      historical = await yf.historical(symbol, {
+        period1: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
         period2: new Date(),
         interval: '1d'
-      }).catch(() => [])
-    ]);
+      });
+      console.log(`     ✓ Got ${historical.length} historical records`);
+    } catch (histError) {
+      console.log(`     ⚠ Historical data unavailable: ${histError.message}`);
+    }
 
     // Calculate performance metrics
     const currentPrice = quote.regularMarketPrice || 0;
@@ -59,10 +113,9 @@ async function getStockData(symbol) {
     // Get period returns from historical data
     let weekReturn = 0, monthReturn = 0, threeMonthReturn = 0, ytdReturn = 0;
     
-    if (historical && historical.length > 0) {
+    if (historical && historical.length > 5) {
       const today = historical[historical.length - 1]?.close || currentPrice;
       
-      // Find prices at different periods
       const weekAgoIdx = Math.max(0, historical.length - 5);
       const monthAgoIdx = Math.max(0, historical.length - 22);
       const threeMonthAgoIdx = Math.max(0, historical.length - 66);
@@ -71,7 +124,6 @@ async function getStockData(symbol) {
       const monthAgoPrice = historical[monthAgoIdx]?.close || today;
       const threeMonthAgoPrice = historical[threeMonthAgoIdx]?.close || today;
       
-      // Find YTD start price
       const currentYear = new Date().getFullYear();
       const ytdStart = historical.find(h => new Date(h.date).getFullYear() === currentYear);
       const ytdStartPrice = ytdStart?.close || historical[0]?.close || today;
@@ -101,36 +153,52 @@ async function getStockData(symbol) {
       twoHundredDayAvg: quote.twoHundredDayAverage || 0,
       peRatio: quote.trailingPE || null,
       forwardPE: quote.forwardPE || null,
-      eps: quote.trailingAnnualDividendYield || quote.epsTrailingTwelveMonths || null,
       beta: quote.beta || null,
       sharesOutstanding: quote.sharesOutstanding || 0,
       weekReturn,
       monthReturn,
       threeMonthReturn,
       ytdReturn,
-      priceToBook: quote.priceToBook || null,
       analystRating: quote.averageAnalystRating || null
     };
   } catch (error) {
-    console.error(`Error fetching data for ${symbol}:`, error.message);
+    console.error(`   ✗ Error fetching ${symbol}:`, error.message);
     return null;
   }
 }
 
 async function getMarketIndices() {
   const results = [];
+  const yf = await initYahooFinance();
+  
   for (const index of CONFIG.marketIndices) {
     try {
-      const quote = await yahooFinance.quote(index.symbol);
-      results.push({
-        symbol: index.symbol,
-        name: index.name,
-        price: quote.regularMarketPrice || 0,
-        change: quote.regularMarketChange || 0,
-        changePercent: quote.regularMarketChangePercent || 0
-      });
+      await delay(500);
+      console.log(`   Fetching ${index.name} (${index.symbol})...`);
+      
+      const quote = await yf.quote(index.symbol);
+      
+      if (quote && quote.regularMarketPrice) {
+        results.push({
+          symbol: index.symbol,
+          name: index.name,
+          price: quote.regularMarketPrice || 0,
+          change: quote.regularMarketChange || 0,
+          changePercent: quote.regularMarketChangePercent || 0
+        });
+        console.log(`   ✓ ${index.name}: ${quote.regularMarketPrice}`);
+      } else {
+        console.log(`   ⚠ No data for ${index.name}`);
+        results.push({
+          symbol: index.symbol,
+          name: index.name,
+          price: 0,
+          change: 0,
+          changePercent: 0
+        });
+      }
     } catch (error) {
-      console.error(`Error fetching ${index.name}:`, error.message);
+      console.error(`   ✗ Error fetching ${index.name}:`, error.message);
       results.push({
         symbol: index.symbol,
         name: index.name,
@@ -218,7 +286,7 @@ function formatNumber(num, decimals = 2) {
 }
 
 function formatLargeNumber(num) {
-  if (num === null || num === undefined || isNaN(num)) return 'N/A';
+  if (num === null || num === undefined || isNaN(num) || num === 0) return 'N/A';
   if (num >= 1e12) return `$${(num / 1e12).toFixed(2)}T`;
   if (num >= 1e9) return `$${(num / 1e9).toFixed(2)}B`;
   if (num >= 1e6) return `$${(num / 1e6).toFixed(2)}M`;
@@ -226,16 +294,16 @@ function formatLargeNumber(num) {
 }
 
 function formatVolume(num) {
-  if (num === null || num === undefined || isNaN(num)) return 'N/A';
+  if (num === null || num === undefined || isNaN(num) || num === 0) return 'N/A';
   if (num >= 1e6) return `${(num / 1e6).toFixed(2)}M`;
   if (num >= 1e3) return `${(num / 1e3).toFixed(1)}K`;
   return num.toLocaleString();
 }
 
 function getChangeColor(change) {
-  if (change > 0) return '#10B981'; // Green
-  if (change < 0) return '#EF4444'; // Red
-  return '#6B7280'; // Gray
+  if (change > 0) return '#10B981';
+  if (change < 0) return '#EF4444';
+  return '#6B7280';
 }
 
 function getChangeArrow(change) {
@@ -247,31 +315,36 @@ function getChangeArrow(change) {
 function getSignalStrength(price, fiftyTwoWeekHigh, fiftyTwoWeekLow, fiftyDayAvg, twoHundredDayAvg) {
   let signals = [];
   
-  // Near 52-week high/low
+  if (!price || price === 0) return signals;
+  
   const range = fiftyTwoWeekHigh - fiftyTwoWeekLow;
   const position = range > 0 ? (price - fiftyTwoWeekLow) / range : 0.5;
   
   if (position >= 0.9) signals.push({ text: 'Near 52W High', color: '#10B981' });
   else if (position <= 0.1) signals.push({ text: 'Near 52W Low', color: '#EF4444' });
   
-  // Moving average signals
-  if (price > fiftyDayAvg && fiftyDayAvg > 0) {
-    signals.push({ text: 'Above 50 DMA', color: '#10B981' });
-  } else if (fiftyDayAvg > 0) {
-    signals.push({ text: 'Below 50 DMA', color: '#EF4444' });
+  if (fiftyDayAvg > 0) {
+    if (price > fiftyDayAvg) {
+      signals.push({ text: 'Above 50 DMA', color: '#10B981' });
+    } else {
+      signals.push({ text: 'Below 50 DMA', color: '#EF4444' });
+    }
   }
   
-  if (price > twoHundredDayAvg && twoHundredDayAvg > 0) {
-    signals.push({ text: 'Above 200 DMA', color: '#10B981' });
-  } else if (twoHundredDayAvg > 0) {
-    signals.push({ text: 'Below 200 DMA', color: '#EF4444' });
+  if (twoHundredDayAvg > 0) {
+    if (price > twoHundredDayAvg) {
+      signals.push({ text: 'Above 200 DMA', color: '#10B981' });
+    } else {
+      signals.push({ text: 'Below 200 DMA', color: '#EF4444' });
+    }
   }
   
-  // Golden/Death cross
-  if (fiftyDayAvg > twoHundredDayAvg && fiftyDayAvg > 0 && twoHundredDayAvg > 0) {
-    signals.push({ text: 'Golden Cross', color: '#F59E0B' });
-  } else if (fiftyDayAvg < twoHundredDayAvg && fiftyDayAvg > 0 && twoHundredDayAvg > 0) {
-    signals.push({ text: 'Death Cross', color: '#8B5CF6' });
+  if (fiftyDayAvg > 0 && twoHundredDayAvg > 0) {
+    if (fiftyDayAvg > twoHundredDayAvg) {
+      signals.push({ text: 'Golden Cross', color: '#F59E0B' });
+    } else {
+      signals.push({ text: 'Death Cross', color: '#8B5CF6' });
+    }
   }
   
   return signals;
@@ -286,7 +359,6 @@ function generateEmailHTML(stocksData, indices, catalysts, notes) {
     day: 'numeric' 
   });
 
-  // Determine overall market sentiment
   const sp500 = indices.find(i => i.symbol === '^GSPC');
   const vix = indices.find(i => i.symbol === '^VIX');
   let marketSentiment = 'Neutral';
@@ -305,6 +377,10 @@ function generateEmailHTML(stocksData, indices, catalysts, notes) {
     sentimentColor = '#F59E0B';
   }
 
+  // Check if we have valid market data
+  const hasMarketData = indices.some(i => i.price > 0);
+  const hasStockData = stocksData.some(s => s !== null && s.price > 0);
+
   return `
 <!DOCTYPE html>
 <html>
@@ -315,7 +391,6 @@ function generateEmailHTML(stocksData, indices, catalysts, notes) {
 </head>
 <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #F3F4F6; line-height: 1.6;">
   
-  <!-- Container -->
   <div style="max-width: 700px; margin: 0 auto; padding: 20px;">
     
     <!-- Header -->
@@ -332,6 +407,12 @@ function generateEmailHTML(stocksData, indices, catalysts, notes) {
         <span style="float: right; font-size: 14px; font-weight: normal; color: ${sentimentColor};">${marketSentiment}</span>
       </h2>
       
+      ${!hasMarketData ? `
+      <div style="background: #FEF3C7; border: 1px solid #F59E0B; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+        <p style="margin: 0; color: #92400E; font-size: 14px;">⚠️ Market data temporarily unavailable. This may occur outside market hours or due to data provider issues.</p>
+      </div>
+      ` : ''}
+      
       <table style="width: 100%; border-collapse: collapse;">
         <tr style="background: #F9FAFB;">
           <th style="padding: 10px; text-align: left; font-size: 13px; color: #6B7280; font-weight: 600;">Index</th>
@@ -341,9 +422,9 @@ function generateEmailHTML(stocksData, indices, catalysts, notes) {
         ${indices.map(index => `
           <tr style="border-bottom: 1px solid #E5E7EB;">
             <td style="padding: 12px 10px; font-weight: 500; color: #374151;">${index.name}</td>
-            <td style="padding: 12px 10px; text-align: right; font-weight: 600; color: #111827;">${formatNumber(index.price, index.symbol === '^VIX' ? 2 : 0)}</td>
+            <td style="padding: 12px 10px; text-align: right; font-weight: 600; color: #111827;">${index.price > 0 ? formatNumber(index.price, index.symbol === '^VIX' ? 2 : 0) : '—'}</td>
             <td style="padding: 12px 10px; text-align: right; font-weight: 600; color: ${getChangeColor(index.changePercent)};">
-              ${getChangeArrow(index.changePercent)} ${formatNumber(Math.abs(index.changePercent))}%
+              ${index.price > 0 ? `${getChangeArrow(index.changePercent)} ${formatNumber(Math.abs(index.changePercent))}%` : '—'}
             </td>
           </tr>
         `).join('')}
@@ -356,25 +437,28 @@ function generateEmailHTML(stocksData, indices, catalysts, notes) {
         🎯 Portfolio Watchlist
       </h2>
       
+      ${!hasStockData ? `
+      <div style="background: #FEF3C7; border: 1px solid #F59E0B; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
+        <p style="margin: 0; color: #92400E; font-size: 14px;">⚠️ Stock data temporarily unavailable. Please check the GitHub Actions logs for details.</p>
+      </div>
+      ` : ''}
+      
       ${stocksData.filter(s => s !== null).map(stock => {
         const stockConfig = CONFIG.stocks.find(s => s.symbol === stock.symbol);
         const stockCatalysts = catalysts[stock.symbol] || [];
         const stockNotes = notes[stock.symbol] || {};
         const signals = getSignalStrength(stock.price, stock.fiftyTwoWeekHigh, stock.fiftyTwoWeekLow, stock.fiftyDayAvg, stock.twoHundredDayAvg);
         
-        // Calculate distance from 52-week high
         const distFromHigh = stock.fiftyTwoWeekHigh > 0 
           ? ((stock.price - stock.fiftyTwoWeekHigh) / stock.fiftyTwoWeekHigh * 100)
           : 0;
         
-        // Volume analysis
         const volumeRatio = stock.avgVolume > 0 ? stock.volume / stock.avgVolume : 1;
         let volumeSignal = '';
         if (volumeRatio > 1.5) volumeSignal = '🔥 High Volume';
         else if (volumeRatio < 0.5) volumeSignal = '😴 Low Volume';
         
         return `
-        <!-- ${stock.symbol} Card -->
         <div style="border: 1px solid #E5E7EB; border-radius: 10px; margin-bottom: 20px; overflow: hidden;">
           
           <!-- Stock Header -->
@@ -395,7 +479,6 @@ function generateEmailHTML(stocksData, indices, catalysts, notes) {
               </div>
             </div>
             
-            <!-- Technical Signals -->
             ${signals.length > 0 ? `
             <div style="margin-top: 12px;">
               ${signals.map(s => `<span style="display: inline-block; background: ${s.color}15; color: ${s.color}; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; margin-right: 6px; margin-top: 4px;">${s.text}</span>`).join('')}
@@ -546,7 +629,9 @@ ${dateStr}
 
   indices.forEach(index => {
     const arrow = index.changePercent > 0 ? '▲' : index.changePercent < 0 ? '▼' : '—';
-    text += `${index.name.padEnd(15)} ${formatNumber(index.price, 0).padStart(10)}  ${arrow} ${formatNumber(Math.abs(index.changePercent))}%\n`;
+    const priceStr = index.price > 0 ? formatNumber(index.price, 0) : 'N/A';
+    const changeStr = index.price > 0 ? `${arrow} ${formatNumber(Math.abs(index.changePercent))}%` : '—';
+    text += `${index.name.padEnd(15)} ${priceStr.padStart(10)}  ${changeStr}\n`;
   });
 
   text += `\n🎯 PORTFOLIO WATCHLIST\n`;
@@ -554,7 +639,6 @@ ${dateStr}
 
   stocksData.filter(s => s !== null).forEach(stock => {
     const stockConfig = CONFIG.stocks.find(s => s.symbol === stock.symbol);
-    const stockNotes = notes[stock.symbol] || {};
     const stockCatalysts = catalysts[stock.symbol] || [];
     const arrow = stock.changePercent > 0 ? '▲' : stock.changePercent < 0 ? '▼' : '—';
     
@@ -616,7 +700,7 @@ async function sendEmail(htmlContent, plainTextContent) {
     service: 'gmail',
     auth: {
       user: emailUser,
-      pass: emailPassword.replace(/\s/g, ''), // Remove any spaces from app password
+      pass: emailPassword.replace(/\s/g, ''),
     },
   });
 
@@ -658,17 +742,24 @@ async function main() {
   console.log('───────────────────────────────────────────────────────────\n');
 
   try {
-    // Fetch all data
+    // Initialize Yahoo Finance first
+    console.log('🔧 Initializing Yahoo Finance...');
+    await initYahooFinance();
+    console.log('');
+    
+    // Fetch market indices
     console.log('📈 Fetching market indices...');
     const indices = await getMarketIndices();
-    console.log('   ✓ Market indices loaded\n');
+    const validIndices = indices.filter(i => i.price > 0);
+    console.log(`   ✓ Loaded ${validIndices.length}/${indices.length} indices\n`);
 
+    // Fetch stock data
     console.log('📊 Fetching stock data...');
     const stocksData = [];
     for (const stock of CONFIG.stocks) {
       console.log(`   • Fetching ${stock.symbol}...`);
       const data = await getStockData(stock.symbol);
-      if (data) {
+      if (data && data.price > 0) {
         stocksData.push(data);
         console.log(`     ✓ ${stock.symbol}: $${formatNumber(data.price)} (${data.changePercent >= 0 ? '+' : ''}${formatNumber(data.changePercent)}%)`);
       } else {
