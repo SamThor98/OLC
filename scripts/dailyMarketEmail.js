@@ -6,10 +6,11 @@
  * - MindMed (MNMD)
  * - Planet Labs (PL)
  * 
- * Uses Yahoo Finance for free, reliable market data
+ * Uses direct Yahoo Finance API calls for reliable data
  */
 
 const nodemailer = require('nodemailer');
+const https = require('https');
 
 // ============================================================================
 // CONFIGURATION
@@ -32,163 +33,165 @@ const CONFIG = {
 };
 
 // ============================================================================
-// YAHOO FINANCE SETUP
+// DIRECT YAHOO FINANCE API
 // ============================================================================
 
-let yahooFinance = null;
-
-async function initYahooFinance() {
-  if (yahooFinance) return yahooFinance;
-  
-  try {
-    const yf = require('yahoo-finance2').default;
-    
-    // Suppress validation errors and notices
-    yf.setGlobalConfig({
-      validation: {
-        logErrors: false,
-        logOptionsErrors: false,
+function fetchJSON(url) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
       }
-    });
+    };
     
-    // Suppress survey notices
-    yf.suppressNotices(['yahooSurvey']);
-    
-    yahooFinance = yf;
-    console.log('   ✓ Yahoo Finance initialized');
-    return yf;
-  } catch (error) {
-    console.error('   ✗ Failed to initialize Yahoo Finance:', error.message);
-    throw error;
-  }
+    https.get(url, options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(data));
+        } catch (e) {
+          reject(new Error(`Failed to parse JSON: ${e.message}`));
+        }
+      });
+    }).on('error', reject);
+  });
 }
 
-// Add delay between requests to avoid rate limiting
-function delay(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// ============================================================================
-// DATA FETCHING
-// ============================================================================
-
-async function getStockData(symbol) {
+async function getYahooQuote(symbol) {
   try {
-    const yf = await initYahooFinance();
+    // Use Yahoo Finance v8 API
+    const encodedSymbol = encodeURIComponent(symbol);
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodedSymbol}?interval=1d&range=1y`;
     
-    // Add small delay to avoid rate limiting
-    await delay(500);
+    console.log(`     Fetching ${symbol} from Yahoo Finance...`);
+    const data = await fetchJSON(url);
     
-    console.log(`     Fetching quote for ${symbol}...`);
-    const quote = await yf.quote(symbol);
-    
-    if (!quote || !quote.regularMarketPrice) {
-      console.log(`     ✗ No quote data for ${symbol}`);
+    if (!data.chart || !data.chart.result || !data.chart.result[0]) {
+      console.log(`     ⚠ No chart data for ${symbol}`);
       return null;
     }
     
-    console.log(`     ✓ Got quote: $${quote.regularMarketPrice}`);
+    const result = data.chart.result[0];
+    const meta = result.meta;
+    const quotes = result.indicators?.quote?.[0] || {};
+    const timestamps = result.timestamp || [];
     
-    // Try to get historical data (optional, don't fail if unavailable)
-    let historical = [];
-    try {
-      await delay(300);
-      console.log(`     Fetching historical data for ${symbol}...`);
-      historical = await yf.historical(symbol, {
-        period1: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
-        period2: new Date(),
-        interval: '1d'
-      });
-      console.log(`     ✓ Got ${historical.length} historical records`);
-    } catch (histError) {
-      console.log(`     ⚠ Historical data unavailable: ${histError.message}`);
-    }
-
-    // Calculate performance metrics
-    const currentPrice = quote.regularMarketPrice || 0;
-    const previousClose = quote.regularMarketPreviousClose || currentPrice;
+    // Get current price info
+    const currentPrice = meta.regularMarketPrice || 0;
+    const previousClose = meta.chartPreviousClose || meta.previousClose || currentPrice;
     const change = currentPrice - previousClose;
     const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
     
-    // Get period returns from historical data
+    // Calculate historical performance
     let weekReturn = 0, monthReturn = 0, threeMonthReturn = 0, ytdReturn = 0;
+    const closes = quotes.close || [];
     
-    if (historical && historical.length > 5) {
-      const today = historical[historical.length - 1]?.close || currentPrice;
+    if (closes.length > 5) {
+      const today = closes[closes.length - 1] || currentPrice;
       
-      const weekAgoIdx = Math.max(0, historical.length - 5);
-      const monthAgoIdx = Math.max(0, historical.length - 22);
-      const threeMonthAgoIdx = Math.max(0, historical.length - 66);
+      // Get prices at different periods
+      const weekAgoIdx = Math.max(0, closes.length - 5);
+      const monthAgoIdx = Math.max(0, closes.length - 22);
+      const threeMonthAgoIdx = Math.max(0, closes.length - 66);
       
-      const weekAgoPrice = historical[weekAgoIdx]?.close || today;
-      const monthAgoPrice = historical[monthAgoIdx]?.close || today;
-      const threeMonthAgoPrice = historical[threeMonthAgoIdx]?.close || today;
+      const weekAgoPrice = closes[weekAgoIdx] || today;
+      const monthAgoPrice = closes[monthAgoIdx] || today;
+      const threeMonthAgoPrice = closes[threeMonthAgoIdx] || today;
       
+      // YTD - find first trading day of current year
       const currentYear = new Date().getFullYear();
-      const ytdStart = historical.find(h => new Date(h.date).getFullYear() === currentYear);
-      const ytdStartPrice = ytdStart?.close || historical[0]?.close || today;
+      let ytdStartPrice = closes[0] || today;
+      for (let i = 0; i < timestamps.length; i++) {
+        const date = new Date(timestamps[i] * 1000);
+        if (date.getFullYear() === currentYear && closes[i]) {
+          ytdStartPrice = closes[i];
+          break;
+        }
+      }
       
       weekReturn = weekAgoPrice > 0 ? ((today - weekAgoPrice) / weekAgoPrice) * 100 : 0;
       monthReturn = monthAgoPrice > 0 ? ((today - monthAgoPrice) / monthAgoPrice) * 100 : 0;
       threeMonthReturn = threeMonthAgoPrice > 0 ? ((today - threeMonthAgoPrice) / threeMonthAgoPrice) * 100 : 0;
       ytdReturn = ytdStartPrice > 0 ? ((today - ytdStartPrice) / ytdStartPrice) * 100 : 0;
     }
-
+    
+    // Get high/low from historical data
+    const highs = quotes.high || [];
+    const lows = quotes.low || [];
+    const volumes = quotes.volume || [];
+    
+    const fiftyTwoWeekHigh = highs.length > 0 ? Math.max(...highs.filter(h => h)) : meta.fiftyTwoWeekHigh || 0;
+    const fiftyTwoWeekLow = lows.length > 0 ? Math.min(...lows.filter(l => l)) : meta.fiftyTwoWeekLow || 0;
+    
+    // Calculate moving averages
+    let fiftyDayAvg = 0, twoHundredDayAvg = 0;
+    if (closes.length >= 50) {
+      const last50 = closes.slice(-50).filter(c => c);
+      fiftyDayAvg = last50.reduce((a, b) => a + b, 0) / last50.length;
+    }
+    if (closes.length >= 200) {
+      const last200 = closes.slice(-200).filter(c => c);
+      twoHundredDayAvg = last200.reduce((a, b) => a + b, 0) / last200.length;
+    }
+    
+    // Get today's data
+    const dayHigh = highs.length > 0 ? highs[highs.length - 1] || 0 : 0;
+    const dayLow = lows.length > 0 ? lows[lows.length - 1] || 0 : 0;
+    const volume = volumes.length > 0 ? volumes[volumes.length - 1] || 0 : 0;
+    
+    // Calculate average volume (last 10 days)
+    const last10Volumes = volumes.slice(-10).filter(v => v);
+    const avgVolume = last10Volumes.length > 0 ? last10Volumes.reduce((a, b) => a + b, 0) / last10Volumes.length : 0;
+    
+    console.log(`     ✓ ${symbol}: $${currentPrice.toFixed(2)} (${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%)`);
+    
     return {
       symbol,
-      name: quote.shortName || quote.longName || symbol,
+      name: meta.shortName || meta.longName || symbol,
       price: currentPrice,
       change,
       changePercent,
       previousClose,
-      open: quote.regularMarketOpen || 0,
-      dayHigh: quote.regularMarketDayHigh || 0,
-      dayLow: quote.regularMarketDayLow || 0,
-      volume: quote.regularMarketVolume || 0,
-      avgVolume: quote.averageDailyVolume10Day || quote.averageDailyVolume3Month || 0,
-      marketCap: quote.marketCap || 0,
-      fiftyTwoWeekHigh: quote.fiftyTwoWeekHigh || 0,
-      fiftyTwoWeekLow: quote.fiftyTwoWeekLow || 0,
-      fiftyDayAvg: quote.fiftyDayAverage || 0,
-      twoHundredDayAvg: quote.twoHundredDayAverage || 0,
-      peRatio: quote.trailingPE || null,
-      forwardPE: quote.forwardPE || null,
-      beta: quote.beta || null,
-      sharesOutstanding: quote.sharesOutstanding || 0,
+      open: meta.regularMarketOpen || 0,
+      dayHigh: meta.regularMarketDayHigh || dayHigh,
+      dayLow: meta.regularMarketDayLow || dayLow,
+      volume: meta.regularMarketVolume || volume,
+      avgVolume,
+      marketCap: meta.marketCap || 0,
+      fiftyTwoWeekHigh,
+      fiftyTwoWeekLow,
+      fiftyDayAvg,
+      twoHundredDayAvg,
       weekReturn,
       monthReturn,
       threeMonthReturn,
-      ytdReturn,
-      analystRating: quote.averageAnalystRating || null
+      ytdReturn
     };
   } catch (error) {
-    console.error(`   ✗ Error fetching ${symbol}:`, error.message);
+    console.error(`     ✗ Error fetching ${symbol}:`, error.message);
     return null;
   }
 }
 
 async function getMarketIndices() {
   const results = [];
-  const yf = await initYahooFinance();
   
   for (const index of CONFIG.marketIndices) {
     try {
-      await delay(500);
-      console.log(`   Fetching ${index.name} (${index.symbol})...`);
+      console.log(`   Fetching ${index.name}...`);
+      const data = await getYahooQuote(index.symbol);
       
-      const quote = await yf.quote(index.symbol);
-      
-      if (quote && quote.regularMarketPrice) {
+      if (data && data.price > 0) {
         results.push({
           symbol: index.symbol,
           name: index.name,
-          price: quote.regularMarketPrice || 0,
-          change: quote.regularMarketChange || 0,
-          changePercent: quote.regularMarketChangePercent || 0
+          price: data.price,
+          change: data.change,
+          changePercent: data.changePercent
         });
-        console.log(`   ✓ ${index.name}: ${quote.regularMarketPrice}`);
       } else {
-        console.log(`   ⚠ No data for ${index.name}`);
         results.push({
           symbol: index.symbol,
           name: index.name,
@@ -207,12 +210,21 @@ async function getMarketIndices() {
         changePercent: 0
       });
     }
+    
+    // Small delay between requests
+    await new Promise(resolve => setTimeout(resolve, 300));
   }
+  
   return results;
 }
 
+async function getStockData(symbol) {
+  const data = await getYahooQuote(symbol);
+  return data;
+}
+
 // ============================================================================
-// CATALYST DATA (Manually curated - update as needed)
+// CATALYST DATA
 // ============================================================================
 
 function getUpcomingCatalysts() {
@@ -377,7 +389,6 @@ function generateEmailHTML(stocksData, indices, catalysts, notes) {
     sentimentColor = '#F59E0B';
   }
 
-  // Check if we have valid market data
   const hasMarketData = indices.some(i => i.price > 0);
   const hasStockData = stocksData.some(s => s !== null && s.price > 0);
 
@@ -409,7 +420,7 @@ function generateEmailHTML(stocksData, indices, catalysts, notes) {
       
       ${!hasMarketData ? `
       <div style="background: #FEF3C7; border: 1px solid #F59E0B; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
-        <p style="margin: 0; color: #92400E; font-size: 14px;">⚠️ Market data temporarily unavailable. This may occur outside market hours or due to data provider issues.</p>
+        <p style="margin: 0; color: #92400E; font-size: 14px;">⚠️ Market data temporarily unavailable. Markets may be closed.</p>
       </div>
       ` : ''}
       
@@ -439,7 +450,7 @@ function generateEmailHTML(stocksData, indices, catalysts, notes) {
       
       ${!hasStockData ? `
       <div style="background: #FEF3C7; border: 1px solid #F59E0B; border-radius: 8px; padding: 15px; margin-bottom: 15px;">
-        <p style="margin: 0; color: #92400E; font-size: 14px;">⚠️ Stock data temporarily unavailable. Please check the GitHub Actions logs for details.</p>
+        <p style="margin: 0; color: #92400E; font-size: 14px;">⚠️ Stock data temporarily unavailable.</p>
       </div>
       ` : ''}
       
@@ -463,21 +474,23 @@ function generateEmailHTML(stocksData, indices, catalysts, notes) {
           
           <!-- Stock Header -->
           <div style="background: linear-gradient(135deg, #F8FAFC 0%, #F1F5F9 100%); padding: 20px; border-bottom: 1px solid #E5E7EB;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-              <div>
-                <h3 style="margin: 0; font-size: 22px; color: #1E3A5F;">
-                  ${stock.symbol}
-                  <span style="font-size: 14px; font-weight: normal; color: #6B7280; margin-left: 8px;">${stockConfig?.sector || ''}</span>
-                </h3>
-                <p style="margin: 5px 0 0 0; color: #6B7280; font-size: 14px;">${stock.name}</p>
-              </div>
-              <div style="text-align: right;">
-                <div style="font-size: 28px; font-weight: 700; color: #111827;">$${formatNumber(stock.price)}</div>
-                <div style="font-size: 16px; font-weight: 600; color: ${getChangeColor(stock.changePercent)};">
-                  ${getChangeArrow(stock.changePercent)} $${formatNumber(Math.abs(stock.change))} (${formatNumber(Math.abs(stock.changePercent))}%)
-                </div>
-              </div>
-            </div>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="vertical-align: top;">
+                  <h3 style="margin: 0; font-size: 22px; color: #1E3A5F;">
+                    ${stock.symbol}
+                    <span style="font-size: 14px; font-weight: normal; color: #6B7280; margin-left: 8px;">${stockConfig?.sector || ''}</span>
+                  </h3>
+                  <p style="margin: 5px 0 0 0; color: #6B7280; font-size: 14px;">${stock.name}</p>
+                </td>
+                <td style="text-align: right; vertical-align: top;">
+                  <div style="font-size: 28px; font-weight: 700; color: #111827;">$${formatNumber(stock.price)}</div>
+                  <div style="font-size: 16px; font-weight: 600; color: ${getChangeColor(stock.changePercent)};">
+                    ${getChangeArrow(stock.changePercent)} $${formatNumber(Math.abs(stock.change))} (${formatNumber(Math.abs(stock.changePercent))}%)
+                  </div>
+                </td>
+              </tr>
+            </table>
             
             ${signals.length > 0 ? `
             <div style="margin-top: 12px;">
@@ -571,11 +584,11 @@ function generateEmailHTML(stocksData, indices, catalysts, notes) {
           <div style="padding: 15px 20px; background: #FFFBEB; border-top: 1px solid #FDE68A;">
             <div style="font-size: 11px; color: #92400E; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;">📅 Upcoming Catalysts</div>
             ${stockCatalysts.map(cat => `
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <div style="margin-bottom: 6px;">
                 <span style="font-size: 13px; color: #78350F;">
                   ${cat.importance === 'high' ? '🔴' : '🟡'} ${cat.event}
                 </span>
-                <span style="font-size: 12px; color: #92400E; font-weight: 500;">${cat.date}</span>
+                <span style="font-size: 12px; color: #92400E; font-weight: 500; float: right;">${cat.date}</span>
               </div>
             `).join('')}
           </div>
@@ -608,7 +621,7 @@ function generateEmailHTML(stocksData, indices, catalysts, notes) {
   `;
 }
 
-function generatePlainText(stocksData, indices, catalysts, notes) {
+function generatePlainText(stocksData, indices) {
   const today = new Date();
   const dateStr = today.toLocaleDateString('en-US', { 
     weekday: 'long', 
@@ -617,67 +630,22 @@ function generatePlainText(stocksData, indices, catalysts, notes) {
     day: 'numeric' 
   });
 
-  let text = `
-═══════════════════════════════════════════════════════════
-🦬 OLD LOGAN CAPITAL - DAILY MARKET BRIEFING
-${dateStr}
-═══════════════════════════════════════════════════════════
-
-📊 MARKET OVERVIEW
-───────────────────────────────────────────────────────────
-`;
-
+  let text = `OLD LOGAN CAPITAL - DAILY MARKET BRIEFING\n${dateStr}\n\n`;
+  text += `MARKET OVERVIEW\n`;
+  
   indices.forEach(index => {
-    const arrow = index.changePercent > 0 ? '▲' : index.changePercent < 0 ? '▼' : '—';
-    const priceStr = index.price > 0 ? formatNumber(index.price, 0) : 'N/A';
-    const changeStr = index.price > 0 ? `${arrow} ${formatNumber(Math.abs(index.changePercent))}%` : '—';
-    text += `${index.name.padEnd(15)} ${priceStr.padStart(10)}  ${changeStr}\n`;
+    const arrow = index.changePercent > 0 ? '+' : '';
+    text += `${index.name}: ${index.price > 0 ? formatNumber(index.price, 0) : 'N/A'} (${arrow}${formatNumber(index.changePercent)}%)\n`;
   });
 
-  text += `\n🎯 PORTFOLIO WATCHLIST\n`;
-  text += `═══════════════════════════════════════════════════════════\n\n`;
-
+  text += `\nPORTFOLIO WATCHLIST\n`;
+  
   stocksData.filter(s => s !== null).forEach(stock => {
-    const stockConfig = CONFIG.stocks.find(s => s.symbol === stock.symbol);
-    const stockCatalysts = catalysts[stock.symbol] || [];
-    const arrow = stock.changePercent > 0 ? '▲' : stock.changePercent < 0 ? '▼' : '—';
-    
-    text += `┌─────────────────────────────────────────────────────────┐
-│ ${stock.symbol} - ${stock.name}
-│ ${stockConfig?.sector || ''}
-├─────────────────────────────────────────────────────────┤
-│ PRICE: $${formatNumber(stock.price)}  ${arrow} $${formatNumber(Math.abs(stock.change))} (${formatNumber(Math.abs(stock.changePercent))}%)
-│
-│ Day Range:    $${formatNumber(stock.dayLow)} - $${formatNumber(stock.dayHigh)}
-│ 52W Range:    $${formatNumber(stock.fiftyTwoWeekLow)} - $${formatNumber(stock.fiftyTwoWeekHigh)}
-│ Market Cap:   ${formatLargeNumber(stock.marketCap)}
-│ Volume:       ${formatVolume(stock.volume)} (Avg: ${formatVolume(stock.avgVolume)})
-│ 50 DMA:       $${formatNumber(stock.fiftyDayAvg)}
-│ 200 DMA:      $${formatNumber(stock.twoHundredDayAvg)}
-│
-│ PERFORMANCE:
-│   1 Week: ${formatNumber(stock.weekReturn)}%  |  1 Month: ${formatNumber(stock.monthReturn)}%
-│   3 Month: ${formatNumber(stock.threeMonthReturn)}%  |  YTD: ${formatNumber(stock.ytdReturn)}%
-`;
-
-    if (stockCatalysts.length > 0) {
-      text += `│\n│ UPCOMING CATALYSTS:\n`;
-      stockCatalysts.forEach(cat => {
-        text += `│   ${cat.importance === 'high' ? '●' : '○'} ${cat.event} (${cat.date})\n`;
-      });
-    }
-
-    text += `└─────────────────────────────────────────────────────────┘\n\n`;
+    const arrow = stock.changePercent > 0 ? '+' : '';
+    text += `\n${stock.symbol} - ${stock.name}\n`;
+    text += `Price: $${formatNumber(stock.price)} (${arrow}${formatNumber(stock.changePercent)}%)\n`;
+    text += `52W Range: $${formatNumber(stock.fiftyTwoWeekLow)} - $${formatNumber(stock.fiftyTwoWeekHigh)}\n`;
   });
-
-  text += `
-───────────────────────────────────────────────────────────
-Data provided by Yahoo Finance
-This email is for informational purposes only. Not financial advice.
-
-Old Logan Capital • Automated Daily Briefing
-═══════════════════════════════════════════════════════════
-`;
 
   return text;
 }
@@ -691,7 +659,7 @@ async function sendEmail(htmlContent, plainTextContent) {
   const emailPassword = process.env.EMAIL_APP_PASSWORD;
 
   if (!emailUser || !emailPassword) {
-    throw new Error('Email credentials not configured. Set EMAIL_USER and EMAIL_APP_PASSWORD environment variables.');
+    throw new Error('Email credentials not configured.');
   }
 
   console.log('📧 Configuring email transport...');
@@ -729,24 +697,19 @@ async function sendEmail(htmlContent, plainTextContent) {
 }
 
 // ============================================================================
-// MAIN EXECUTION
+// MAIN
 // ============================================================================
 
 async function main() {
   console.log('═══════════════════════════════════════════════════════════');
   console.log('🦬 Old Logan Capital - Daily Market Email');
   console.log('═══════════════════════════════════════════════════════════');
-  console.log(`📅 Date: ${new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`);
+  console.log(`📅 Date: ${new Date().toISOString()}`);
   console.log(`📬 Recipient: ${CONFIG.recipient}`);
   console.log(`📊 Stocks: ${CONFIG.stocks.map(s => s.symbol).join(', ')}`);
   console.log('───────────────────────────────────────────────────────────\n');
 
   try {
-    // Initialize Yahoo Finance first
-    console.log('🔧 Initializing Yahoo Finance...');
-    await initYahooFinance();
-    console.log('');
-    
     // Fetch market indices
     console.log('📈 Fetching market indices...');
     const indices = await getMarketIndices();
@@ -761,28 +724,25 @@ async function main() {
       const data = await getStockData(stock.symbol);
       if (data && data.price > 0) {
         stocksData.push(data);
-        console.log(`     ✓ ${stock.symbol}: $${formatNumber(data.price)} (${data.changePercent >= 0 ? '+' : ''}${formatNumber(data.changePercent)}%)`);
       } else {
-        console.log(`     ✗ Failed to fetch ${stock.symbol}`);
+        console.log(`     ✗ No data for ${stock.symbol}`);
       }
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
-    console.log('');
+    console.log(`   ✓ Loaded ${stocksData.length}/${CONFIG.stocks.length} stocks\n`);
 
-    // Get static data
     const catalysts = getUpcomingCatalysts();
     const notes = getCompanyNotes();
 
-    // Generate email content
     console.log('📝 Generating email content...');
     const htmlContent = generateEmailHTML(stocksData, indices, catalysts, notes);
-    const plainTextContent = generatePlainText(stocksData, indices, catalysts, notes);
+    const plainTextContent = generatePlainText(stocksData, indices);
     console.log('   ✓ Email content generated\n');
 
-    // Send email
     await sendEmail(htmlContent, plainTextContent);
     
     console.log('\n═══════════════════════════════════════════════════════════');
-    console.log('✅ Daily market email completed successfully!');
+    console.log('✅ Daily market email completed!');
     console.log('═══════════════════════════════════════════════════════════');
 
   } catch (error) {
@@ -792,5 +752,4 @@ async function main() {
   }
 }
 
-// Run the script
 main();

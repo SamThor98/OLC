@@ -4,11 +4,9 @@
   "description": "Daily market email for Old Logan Capital",
   "main": "dailyMarketEmail.js",
   "scripts": {
-    "send": "node dailyMarketEmail.js",
-    "test": "node dailyMarketEmail.js --test"
+    "send": "node dailyMarketEmail.js"
   },
   "dependencies": {
-    "yahoo-finance2": "^2.11.0",
     "nodemailer": "^6.9.8"
   },
   "author": "Old Logan Capital",
