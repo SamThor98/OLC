@@ -1,9 +1,9 @@
 name: Personal Portfolio Email
 
 on:
-  # Run at 7:30 AM CST (13:30 UTC) every weekday (Monday-Friday)
+  # Run at 7:30 AM CST (13:30 UTC) every day
   schedule:
-    - cron: '30 13 * * 1-5'
+    - cron: '30 13 * * *'
   
   # Allow manual trigger for testing
   workflow_dispatch:
