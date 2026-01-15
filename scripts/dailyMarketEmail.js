@@ -199,11 +199,65 @@ async function getYahooQuote(symbol) {
       weekReturn,
       monthReturn,
       threeMonthReturn,
-      ytdReturn
+      ytdReturn,
+      news: []  // Will be populated separately
     };
   } catch (error) {
     console.error(`     ✗ Error fetching ${symbol}:`, error.message);
     return null;
+  }
+}
+
+// ============================================================================
+// NEWS FETCHING
+// ============================================================================
+
+async function getStockNews(symbol) {
+  try {
+    const encodedSymbol = encodeURIComponent(symbol);
+    // Use Yahoo Finance search API which includes news
+    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodedSymbol}&newsCount=5&quotesCount=0`;
+    
+    console.log(`     Fetching news for ${symbol}...`);
+    const data = await fetchJSON(url);
+    
+    if (!data.news || data.news.length === 0) {
+      console.log(`     ⚠ No news found for ${symbol}`);
+      return [];
+    }
+    
+    // Process and return top 3 news items
+    const news = data.news.slice(0, 3).map(item => {
+      // Calculate how long ago the article was published
+      const publishTime = new Date(item.providerPublishTime * 1000);
+      const now = new Date();
+      const hoursAgo = Math.floor((now - publishTime) / (1000 * 60 * 60));
+      const daysAgo = Math.floor(hoursAgo / 24);
+      
+      let timeAgo = '';
+      if (daysAgo > 0) {
+        timeAgo = `${daysAgo}d ago`;
+      } else if (hoursAgo > 0) {
+        timeAgo = `${hoursAgo}h ago`;
+      } else {
+        timeAgo = 'Just now';
+      }
+      
+      return {
+        title: item.title || 'No title',
+        publisher: item.publisher || 'Unknown',
+        link: item.link || '#',
+        timeAgo,
+        // Create a brief summary from the title (Yahoo doesn't provide summaries)
+        summary: item.title || ''
+      };
+    });
+    
+    console.log(`     ✓ Found ${news.length} news articles for ${symbol}`);
+    return news;
+  } catch (error) {
+    console.error(`     ✗ Error fetching news for ${symbol}:`, error.message);
+    return [];
   }
 }
 
@@ -631,6 +685,23 @@ function generateEmailHTML(stocksData, indices, catalysts, notes) {
           </div>
           ` : ''}
           
+          <!-- News -->
+          ${stock.news && stock.news.length > 0 ? `
+          <div style="padding: 15px 20px; background: #F0F9FF; border-top: 1px solid #BAE6FD;">
+            <div style="font-size: 11px; color: #0369A1; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px;">📰 Recent News</div>
+            ${stock.news.map(article => `
+              <div style="margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #E0F2FE;">
+                <a href="${article.link}" style="font-size: 13px; color: #0C4A6E; text-decoration: none; font-weight: 500; line-height: 1.4; display: block;">
+                  ${article.title}
+                </a>
+                <div style="font-size: 11px; color: #0369A1; margin-top: 4px;">
+                  ${article.publisher} • ${article.timeAgo}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          ` : ''}
+          
         </div>
         `;
       }).join('')}
@@ -767,6 +838,15 @@ async function main() {
       await new Promise(resolve => setTimeout(resolve, 500));
     }
     console.log(`   ✓ Loaded ${stocksData.length}/${CONFIG.stocks.length} stocks\n`);
+
+    // Fetch news for each stock
+    console.log('📰 Fetching news...');
+    for (const stockData of stocksData) {
+      const news = await getStockNews(stockData.symbol);
+      stockData.news = news;
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+    console.log(`   ✓ News loaded\n`);
 
     const catalysts = getUpcomingCatalysts();
     const notes = getCompanyNotes();
