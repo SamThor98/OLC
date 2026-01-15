@@ -1,0 +1,36 @@
+name: Personal Portfolio Email
+
+on:
+  # Run at 7:30 AM CST (13:30 UTC) every weekday (Monday-Friday)
+  schedule:
+    - cron: '30 13 * * 1-5'
+  
+  # Allow manual trigger for testing
+  workflow_dispatch:
+
+jobs:
+  send-portfolio-email:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Install dependencies
+        working-directory: scripts
+        run: npm install
+      
+      - name: Send personal portfolio email
+        env:
+          PERSONAL_EMAIL_USER: ${{ secrets.PERSONAL_EMAIL_USER }}
+          PERSONAL_EMAIL_APP_PASSWORD: ${{ secrets.PERSONAL_EMAIL_APP_PASSWORD }}
+        working-directory: scripts
+        run: node personalMarketEmail.js
+
+      - name: Log completion
+        run: echo "✅ Personal portfolio email sent successfully at $(date)"
