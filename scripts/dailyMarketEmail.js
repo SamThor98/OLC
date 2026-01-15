@@ -129,16 +129,25 @@ async function getYahooQuote(symbol) {
     const fiftyTwoWeekHigh = highs.length > 0 ? Math.max(...highs.filter(h => h)) : meta.fiftyTwoWeekHigh || 0;
     const fiftyTwoWeekLow = lows.length > 0 ? Math.min(...lows.filter(l => l)) : meta.fiftyTwoWeekLow || 0;
     
-    // Calculate moving averages
-    let fiftyDayAvg = 0, twoHundredDayAvg = 0;
-    if (closes.length >= 50) {
-      const last50 = closes.slice(-50).filter(c => c);
-      fiftyDayAvg = last50.reduce((a, b) => a + b, 0) / last50.length;
+    // Calculate weekly moving averages (10-week = ~50 days, 30-week = ~150 days)
+    // Use data up to previous day's close for technical analysis
+    let tenWeekMA = 0, thirtyWeekMA = 0;
+    const closesExcludingToday = closes.slice(0, -1); // Exclude today, use previous day
+    
+    if (closesExcludingToday.length >= 50) {
+      const last50 = closesExcludingToday.slice(-50).filter(c => c);
+      tenWeekMA = last50.length > 0 ? last50.reduce((a, b) => a + b, 0) / last50.length : 0;
     }
-    if (closes.length >= 200) {
-      const last200 = closes.slice(-200).filter(c => c);
-      twoHundredDayAvg = last200.reduce((a, b) => a + b, 0) / last200.length;
+    if (closesExcludingToday.length >= 150) {
+      const last150 = closesExcludingToday.slice(-150).filter(c => c);
+      thirtyWeekMA = last150.length > 0 ? last150.reduce((a, b) => a + b, 0) / last150.length : 0;
     }
+    
+    // Previous day's candle data (for technical signals)
+    const prevDayIdx = closes.length >= 2 ? closes.length - 2 : 0;
+    const prevDayClose = closes[prevDayIdx] || previousClose;
+    const prevDayHigh = highs[prevDayIdx] || 0;
+    const prevDayLow = lows[prevDayIdx] || 0;
     
     // Get today's data
     const dayHigh = highs.length > 0 ? highs[highs.length - 1] || 0 : 0;
@@ -158,6 +167,7 @@ async function getYahooQuote(symbol) {
       change,
       changePercent,
       previousClose,
+      prevDayClose,  // Previous day's close for technical signals
       open: meta.regularMarketOpen || 0,
       dayHigh: meta.regularMarketDayHigh || dayHigh,
       dayLow: meta.regularMarketDayLow || dayLow,
@@ -166,8 +176,8 @@ async function getYahooQuote(symbol) {
       marketCap: meta.marketCap || 0,
       fiftyTwoWeekHigh,
       fiftyTwoWeekLow,
-      fiftyDayAvg,
-      twoHundredDayAvg,
+      tenWeekMA,      // 10-week moving average
+      thirtyWeekMA,   // 30-week moving average
       weekReturn,
       monthReturn,
       threeMonthReturn,
@@ -328,38 +338,42 @@ function getChangeArrow(change) {
   return '—';
 }
 
-function getSignalStrength(price, fiftyTwoWeekHigh, fiftyTwoWeekLow, fiftyDayAvg, twoHundredDayAvg) {
+function getSignalStrength(prevDayClose, fiftyTwoWeekHigh, fiftyTwoWeekLow, tenWeekMA, thirtyWeekMA) {
+  // Uses PREVIOUS DAY'S CLOSE for technical signals (not current/intraday price)
   let signals = [];
   
-  if (!price || price === 0) return signals;
+  if (!prevDayClose || prevDayClose === 0) return signals;
   
   const range = fiftyTwoWeekHigh - fiftyTwoWeekLow;
-  const position = range > 0 ? (price - fiftyTwoWeekLow) / range : 0.5;
+  const position = range > 0 ? (prevDayClose - fiftyTwoWeekLow) / range : 0.5;
   
   if (position >= 0.9) signals.push({ text: 'Near 52W High', color: '#10B981' });
   else if (position <= 0.1) signals.push({ text: 'Near 52W Low', color: '#EF4444' });
   
-  if (fiftyDayAvg > 0) {
-    if (price > fiftyDayAvg) {
-      signals.push({ text: 'Above 50 DMA', color: '#10B981' });
+  // 10-Week Moving Average
+  if (tenWeekMA > 0) {
+    if (prevDayClose > tenWeekMA) {
+      signals.push({ text: 'Above 10 WMA', color: '#10B981' });
     } else {
-      signals.push({ text: 'Below 50 DMA', color: '#EF4444' });
+      signals.push({ text: 'Below 10 WMA', color: '#EF4444' });
     }
   }
   
-  if (twoHundredDayAvg > 0) {
-    if (price > twoHundredDayAvg) {
-      signals.push({ text: 'Above 200 DMA', color: '#10B981' });
+  // 30-Week Moving Average
+  if (thirtyWeekMA > 0) {
+    if (prevDayClose > thirtyWeekMA) {
+      signals.push({ text: 'Above 30 WMA', color: '#10B981' });
     } else {
-      signals.push({ text: 'Below 200 DMA', color: '#EF4444' });
+      signals.push({ text: 'Below 30 WMA', color: '#EF4444' });
     }
   }
   
-  if (fiftyDayAvg > 0 && twoHundredDayAvg > 0) {
-    if (fiftyDayAvg > twoHundredDayAvg) {
-      signals.push({ text: 'Golden Cross', color: '#F59E0B' });
+  // Golden/Death Cross based on weekly MAs
+  if (tenWeekMA > 0 && thirtyWeekMA > 0) {
+    if (tenWeekMA > thirtyWeekMA) {
+      signals.push({ text: '10W > 30W', color: '#F59E0B' });
     } else {
-      signals.push({ text: 'Death Cross', color: '#8B5CF6' });
+      signals.push({ text: '10W < 30W', color: '#8B5CF6' });
     }
   }
   
@@ -462,7 +476,8 @@ function generateEmailHTML(stocksData, indices, catalysts, notes) {
         const stockConfig = CONFIG.stocks.find(s => s.symbol === stock.symbol);
         const stockCatalysts = catalysts[stock.symbol] || [];
         const stockNotes = notes[stock.symbol] || {};
-        const signals = getSignalStrength(stock.price, stock.fiftyTwoWeekHigh, stock.fiftyTwoWeekLow, stock.fiftyDayAvg, stock.twoHundredDayAvg);
+        // Use previous day's close for technical signals
+        const signals = getSignalStrength(stock.prevDayClose, stock.fiftyTwoWeekHigh, stock.fiftyTwoWeekLow, stock.tenWeekMA, stock.thirtyWeekMA);
         
         const distFromHigh = stock.fiftyTwoWeekHigh > 0 
           ? ((stock.price - stock.fiftyTwoWeekHigh) / stock.fiftyTwoWeekHigh * 100)
@@ -535,12 +550,12 @@ function generateEmailHTML(stocksData, indices, catalysts, notes) {
                   <div style="font-size: 14px; color: #374151; font-weight: 500;">${formatVolume(stock.avgVolume)}</div>
                 </td>
                 <td style="padding: 8px 0;">
-                  <div style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px;">50 DMA</div>
-                  <div style="font-size: 14px; color: #374151; font-weight: 500;">$${formatNumber(stock.fiftyDayAvg)}</div>
+                  <div style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px;">10 Week MA</div>
+                  <div style="font-size: 14px; color: #374151; font-weight: 500;">$${formatNumber(stock.tenWeekMA)}</div>
                 </td>
                 <td style="padding: 8px 0;">
-                  <div style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px;">200 DMA</div>
-                  <div style="font-size: 14px; color: #374151; font-weight: 500;">$${formatNumber(stock.twoHundredDayAvg)}</div>
+                  <div style="font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px;">30 Week MA</div>
+                  <div style="font-size: 14px; color: #374151; font-weight: 500;">$${formatNumber(stock.thirtyWeekMA)}</div>
                 </td>
               </tr>
             </table>

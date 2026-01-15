@@ -1,9 +1,9 @@
 name: Daily Market Email
 
 on:
-  # Run at 7:00 AM EST (12:00 UTC) every weekday (Monday-Friday)
+  # Run at 7:30 AM CST (13:30 UTC) every weekday (Monday-Friday)
   schedule:
-    - cron: '0 12 * * 1-5'
+    - cron: '30 13 * * 1-5'
   
   # Allow manual trigger for testing
   workflow_dispatch:
