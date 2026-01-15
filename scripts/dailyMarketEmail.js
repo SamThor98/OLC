@@ -77,20 +77,38 @@ async function getYahooQuote(symbol) {
     const meta = result.meta;
     const quotes = result.indicators?.quote?.[0] || {};
     const timestamps = result.timestamp || [];
+    const closes = quotes.close || [];
     
-    // Get current price info
-    const currentPrice = meta.regularMarketPrice || 0;
+    // Get current/last price from meta or historical data
+    const currentPrice = meta.regularMarketPrice || (closes.length > 0 ? closes[closes.length - 1] : 0) || 0;
     
-    // IMPORTANT: Use previousClose (yesterday's close), NOT chartPreviousClose (start of chart range)
-    const previousClose = meta.previousClose || meta.regularMarketPreviousClose || currentPrice;
-    const change = currentPrice - previousClose;
-    const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
+    // CRITICAL FIX: Calculate daily change from historical data (last two trading days)
+    // This works even when markets are closed
+    let previousClose = 0;
+    let change = 0;
+    let changePercent = 0;
     
-    console.log(`     Price: $${currentPrice}, Prev Close: $${previousClose}, Change: ${changePercent.toFixed(2)}%`);
+    if (closes.length >= 2) {
+      // Get the last two valid closes
+      const validCloses = closes.filter(c => c && c > 0);
+      if (validCloses.length >= 2) {
+        const lastClose = validCloses[validCloses.length - 1];      // Most recent trading day
+        const prevClose = validCloses[validCloses.length - 2];      // Previous trading day
+        previousClose = prevClose;
+        change = lastClose - prevClose;
+        changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
+        console.log(`     Last Close: $${lastClose.toFixed(2)}, Prev Close: $${prevClose.toFixed(2)}, Daily Change: ${changePercent >= 0 ? '+' : ''}${changePercent.toFixed(2)}%`);
+      }
+    } else {
+      // Fallback to meta data if not enough historical data
+      previousClose = meta.previousClose || meta.regularMarketPreviousClose || currentPrice;
+      change = currentPrice - previousClose;
+      changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
+      console.log(`     Price: $${currentPrice}, Prev Close (meta): $${previousClose}, Change: ${changePercent.toFixed(2)}%`);
+    }
     
     // Calculate historical performance
     let weekReturn = 0, monthReturn = 0, threeMonthReturn = 0, ytdReturn = 0;
-    const closes = quotes.close || [];
     
     if (closes.length > 5) {
       const today = closes[closes.length - 1] || currentPrice;
