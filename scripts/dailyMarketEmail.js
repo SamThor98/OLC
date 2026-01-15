@@ -21,7 +21,7 @@ const CONFIG = {
   sender: process.env.EMAIL_USER || 'OldLoganCapital@gmail.com',
   stocks: [
     { symbol: 'NBIS', name: 'Nebius Group', sector: 'Technology/AI Infrastructure' },
-    { symbol: 'MNMD', name: 'MindMed', sector: 'Healthcare/Psychedelics' },
+    { symbol: 'DFTX', name: 'MindMed', sector: 'Healthcare/Psychedelics' },
     { symbol: 'PL', name: 'Planet Labs', sector: 'Technology/Space Data' }
   ],
   marketIndices: [
@@ -321,7 +321,7 @@ function getUpcomingCatalysts() {
       { event: 'Data Center Capacity Announcements', date: 'Q1 2026', importance: 'high' },
       { event: 'Strategic Partnership Updates', date: 'TBA', importance: 'medium' }
     ],
-    'MNMD': [
+    'DFTX': [
       { event: 'MM120 Phase 2b Trial Results (GAD)', date: 'H1 2026 (Est.)', importance: 'high' },
       { event: 'MM402 Phase 1 Trial Updates', date: 'Q1 2026', importance: 'medium' },
       { event: 'FDA Breakthrough Therapy Designation', date: 'Potential 2026', importance: 'high' },
@@ -348,7 +348,7 @@ function getCompanyNotes() {
       ],
       watchFor: 'GPU capacity utilization rates, new customer wins, and AI partnership announcements'
     },
-    'MNMD': {
+    'DFTX': {
       description: 'MindMed is a clinical-stage biopharmaceutical company developing psychedelic-inspired therapies for brain health disorders including anxiety, ADHD, and depression.',
       keyPoints: [
         'Lead candidate MM120 (LSD) in Phase 2b for anxiety',
